@@ -1,0 +1,443 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Submit Job Opportunity - Vigneshwaran Ravichandran</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Courier New', monospace;
+            line-height: 1.6;
+            color: #333;
+            background: #f5f5f5;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            background: white;
+            padding: 40px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+
+        .header {
+            border-bottom: 2px solid #333;
+            padding-bottom: 20px;
+            margin-bottom: 30px;
+        }
+
+        h1 {
+            font-size: 24px;
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+
+        .subtitle {
+            font-size: 14px;
+            color: #666;
+            font-style: italic;
+        }
+
+        .section {
+            margin-bottom: 30px;
+        }
+
+        .section-title {
+            font-weight: bold;
+            font-size: 18px;
+            margin-bottom: 15px;
+            text-transform: uppercase;
+            border-bottom: 1px solid #ddd;
+            padding-bottom: 5px;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        label {
+            display: block;
+            font-weight: bold;
+            margin-bottom: 5px;
+            font-size: 14px;
+        }
+
+        label .required {
+            color: #d9534f;
+        }
+
+        label .hint {
+            font-weight: normal;
+            color: #666;
+            font-size: 12px;
+        }
+
+        input[type="text"],
+        input[type="email"],
+        input[type="tel"],
+        input[type="number"],
+        textarea,
+        select {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+            background: #fafafa;
+        }
+
+        input[type="text"]:focus,
+        input[type="email"]:focus,
+        input[type="tel"]:focus,
+        input[type="number"]:focus,
+        textarea:focus,
+        select:focus {
+            outline: none;
+            border-color: #333;
+            background: white;
+        }
+
+        textarea {
+            min-height: 100px;
+            resize: vertical;
+        }
+
+        .form-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+
+        .form-row-3 {
+            display: grid;
+            grid-template-columns: 2fr 1fr 1fr;
+            gap: 20px;
+        }
+
+        input[type="file"] {
+            padding: 8px;
+            background: white;
+            border: 1px solid #ddd;
+        }
+
+        button {
+            background: #333;
+            color: white;
+            padding: 12px 30px;
+            border: none;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+            font-weight: bold;
+            cursor: pointer;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        button:hover {
+            background: #555;
+        }
+
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+
+        .message {
+            padding: 15px;
+            margin-bottom: 20px;
+            border-radius: 3px;
+            display: none;
+        }
+
+        .message.success {
+            background: #d4edda;
+            border: 1px solid #c3e6cb;
+            color: #155724;
+            display: block;
+        }
+
+        .message.error {
+            background: #f8d7da;
+            border: 1px solid #f5c6cb;
+            color: #721c24;
+            display: block;
+        }
+
+        .loading {
+            display: none;
+            text-align: center;
+            padding: 20px;
+        }
+
+        .loading.active {
+            display: block;
+        }
+
+        .footer {
+            margin-top: 40px;
+            padding-top: 20px;
+            border-top: 1px solid #ddd;
+            text-align: center;
+            font-size: 12px;
+            color: #666;
+        }
+
+        @media (max-width: 768px) {
+            .container {
+                padding: 20px;
+            }
+
+            .form-row,
+            .form-row-3 {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Submit Job Opportunity</h1>
+            <p class="subtitle">Vigneshwaran Ravichandran - DevOps/Backend Engineer</p>
+        </div>
+
+        <div id="successMessage" class="message success" style="display: none;">
+            <strong>Success!</strong> Your job opportunity has been submitted successfully.<br>
+            Submission ID: <span id="submissionId"></span><br>
+            I will review your submission and contact you via WhatsApp shortly.
+        </div>
+
+        <div id="errorMessage" class="message error" style="display: none;">
+            <strong>Error!</strong> <span id="errorText"></span>
+        </div>
+
+        <form id="recruiterForm">
+            <!-- Recruiter Information -->
+            <div class="section">
+                <div class="section-title">Your Contact Information</div>
+
+                <div class="form-group">
+                    <label>Full Name <span class="required">*</span></label>
+                    <input type="text" name="recruiter_name" required>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Email <span class="required">*</span></label>
+                        <input type="email" name="recruiter_email" required>
+                    </div>
+
+                    <div class="form-group">
+                        <label>Phone / WhatsApp <span class="required">*</span></label>
+                        <input type="tel" name="recruiter_phone" required placeholder="+60-12-3456789">
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label>Agency / Company Name</label>
+                    <input type="text" name="recruiter_agency" placeholder="Optional">
+                </div>
+            </div>
+
+            <!-- Job Information -->
+            <div class="section">
+                <div class="section-title">Job Opportunity Details</div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Job Title <span class="required">*</span></label>
+                        <input type="text" name="job_title" required placeholder="e.g., Senior Backend Engineer">
+                    </div>
+
+                    <div class="form-group">
+                        <label>Company Name <span class="required">*</span></label>
+                        <input type="text" name="job_company" required>
+                    </div>
+                </div>
+
+                <div class="form-row-3">
+                    <div class="form-group">
+                        <label>Currency</label>
+                        <select name="job_currency">
+                            <option value="MYR">MYR (Ringgit Malaysia)</option>
+                            <option value="USD">USD (US Dollar)</option>
+                            <option value="SGD">SGD (Singapore Dollar)</option>
+                            <option value="EUR">EUR (Euro)</option>
+                            <option value="GBP">GBP (Pound Sterling)</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label>Salary Min</label>
+                        <input type="number" name="job_salary_min" min="0" placeholder="8000">
+                    </div>
+
+                    <div class="form-group">
+                        <label>Salary Max</label>
+                        <input type="number" name="job_salary_max" min="0" placeholder="15000">
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label>Key Requirements <span class="required">*</span> <span class="hint">(Brief summary of must-have skills/experience)</span></label>
+                    <textarea name="job_requirements" required placeholder="e.g., 5+ years Python, AWS experience, Docker/Kubernetes, CI/CD"></textarea>
+                </div>
+
+                <div class="form-group">
+                    <label>Required Skills <span class="hint">(Comma-separated)</span></label>
+                    <input type="text" name="job_skills" placeholder="Python, AWS, Docker, Kubernetes, Terraform">
+                </div>
+
+                <div class="form-group">
+                    <label>Full Job Description</label>
+                    <textarea name="job_description" placeholder="Detailed job description, responsibilities, team structure, etc."></textarea>
+                </div>
+
+                <div class="form-group">
+                    <label>Job Description File <span class="hint">(PDF or DOCX, max 5MB)</span></label>
+                    <input type="file" name="job_file" accept=".pdf,.doc,.docx">
+                </div>
+            </div>
+
+            <div class="form-group">
+                <button type="submit" id="submitBtn">Submit Job Opportunity</button>
+            </div>
+        </form>
+
+        <div class="loading" id="loading">
+            <p>Submitting your job opportunity...</p>
+            <p>Please wait...</p>
+        </div>
+
+        <div class="footer">
+            <p>All submissions are reviewed personally by Vigneshwaran.</p>
+            <p>You will receive a response via WhatsApp within 24-48 hours.</p>
+            <p><a href="https://cv.vgnshlv.nz" style="color: #333;">View CV</a></p>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE_URL = 'https://riyot36gu9.execute-api.ap-southeast-5.amazonaws.com/prod';
+        const form = document.getElementById('recruiterForm');
+        const submitBtn = document.getElementById('submitBtn');
+        const loading = document.getElementById('loading');
+        const successMessage = document.getElementById('successMessage');
+        const errorMessage = document.getElementById('errorMessage');
+        const errorText = document.getElementById('errorText');
+        const submissionId = document.getElementById('submissionId');
+
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+
+            // Hide previous messages
+            successMessage.style.display = 'none';
+            errorMessage.style.display = 'none';
+
+            // Show loading
+            loading.classList.add('active');
+            submitBtn.disabled = true;
+
+            try {
+                // Prepare form data
+                const formData = new FormData(form);
+
+                // Parse skills (comma-separated to array)
+                const skills = formData.get('job_skills')
+                    ? formData.get('job_skills').split(',').map(s => s.trim()).filter(Boolean)
+                    : [];
+
+                // Build payload
+                const payload = {
+                    recruiter: {
+                        name: formData.get('recruiter_name'),
+                        email: formData.get('recruiter_email'),
+                        phone: formData.get('recruiter_phone'),
+                        agency: formData.get('recruiter_agency') || ''
+                    },
+                    job: {
+                        title: formData.get('job_title'),
+                        company: formData.get('job_company'),
+                        salary_min: parseInt(formData.get('job_salary_min')) || 0,
+                        salary_max: parseInt(formData.get('job_salary_max')) || 0,
+                        currency: formData.get('job_currency'),
+                        requirements: formData.get('job_requirements'),
+                        skills: skills,
+                        description: formData.get('job_description') || ''
+                    }
+                };
+
+                // Step 1: Create submission
+                const createResponse = await fetch(`${API_BASE_URL}/recruiter-submissions`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(payload)
+                });
+
+                if (!createResponse.ok) {
+                    throw new Error(`Failed to create submission: ${createResponse.statusText}`);
+                }
+
+                const createData = await createResponse.json();
+                const subId = createData.submission_id;
+                const jdUploadUrl = createData.jd_upload_url;
+
+                // Step 2: Upload JD file if provided
+                const jdFile = formData.get('job_file');
+                if (jdFile && jdFile.size > 0) {
+                    const uploadResponse = await fetch(jdUploadUrl, {
+                        method: 'PUT',
+                        headers: {
+                            'Content-Type': 'application/pdf'
+                        },
+                        body: jdFile
+                    });
+
+                    if (!uploadResponse.ok) {
+                        console.error('JD upload failed, but submission created');
+                    }
+                }
+
+                // Show success
+                submissionId.textContent = subId;
+                successMessage.style.display = 'block';
+                form.style.display = 'none';
+
+                // Scroll to top
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+
+            } catch (error) {
+                console.error('Submission error:', error);
+                errorText.textContent = error.message || 'An unexpected error occurred. Please try again.';
+                errorMessage.style.display = 'block';
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+            } finally {
+                loading.classList.remove('active');
+                submitBtn.disabled = false;
+            }
+        });
+
+        // Auto-format phone input
+        const phoneInput = document.querySelector('input[name="recruiter_phone"]');
+        phoneInput.addEventListener('blur', function() {
+            let value = this.value.trim();
+            if (value && !value.startsWith('+')) {
+                // Auto-add Malaysia country code if not present
+                if (value.startsWith('60')) {
+                    this.value = '+' + value;
+                } else if (value.startsWith('0')) {
+                    this.value = '+60-' + value.substring(1);
+                }
+            }
+        });
+    </script>
+</body>
+</html>

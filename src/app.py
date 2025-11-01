@@ -11,22 +11,32 @@ from datetime import datetime, date
 from typing import Dict, Any, List, Optional
 import boto3
 from botocore.exceptions import ClientError
+from botocore.config import Config
 
 # Configure logging
 logger = logging.getLogger()
 logger.setLevel(os.environ.get('LOG_LEVEL', 'INFO'))
-
-# AWS clients
-s3 = boto3.client('s3')
 
 # Environment variables
 BUCKET_NAME = os.environ.get('BUCKET_NAME', 'vgnshlvnz-job-tracker')
 PRESIGNED_URL_EXPIRY = int(os.environ.get('PRESIGNED_URL_EXPIRY', '900'))
 REGION = os.environ.get('REGION', 'ap-southeast-5')
 
+# AWS clients
+s3 = boto3.client(
+    's3',
+    region_name=REGION,
+    config=Config(
+        signature_version='s3v4',
+        s3={'addressing_style': 'virtual'}
+    )
+)
+
 # Constants
 ALLOWED_CV_TYPES = ['application/pdf', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document']
+ALLOWED_JD_TYPES = ['application/pdf', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document']
 MAX_CV_SIZE = 10 * 1024 * 1024  # 10MB
+MAX_JD_SIZE = 5 * 1024 * 1024   # 5MB
 
 
 def _app_prefix(app_id: str) -> str:
@@ -54,6 +64,28 @@ def _generate_app_id() -> str:
 def _utc_now() -> str:
     """Get current UTC timestamp in ISO format"""
     return datetime.utcnow().isoformat() + "Z"
+
+
+def _rec_prefix(rec_id: str) -> str:
+    """
+    Get S3 prefix for recruiter submission folder
+    rec_2025-11-01_abc123 -> recruiters/2025/rec_2025-11-01_abc123/
+    """
+    try:
+        # Extract year from rec_id: rec_YYYY-MM-DD_uuid
+        date_part = rec_id.split('_')[1]  # "2025-11-01"
+        year = date_part.split('-')[0]     # "2025"
+        return f"recruiters/{year}/{rec_id}/"
+    except (IndexError, ValueError) as e:
+        logger.error(f"Invalid rec_id format: {rec_id}")
+        raise ValueError(f"Invalid submission ID format: {rec_id}")
+
+
+def _generate_rec_id() -> str:
+    """Generate unique recruiter submission ID: rec_YYYY-MM-DD_UUID"""
+    today = date.today().isoformat()  # "2025-11-01"
+    unique_id = uuid.uuid4().hex[:8]  # 8 characters
+    return f"rec_{today}_{unique_id}"
 
 
 def _response(status_code: int, body: Dict[str, Any], headers: Optional[Dict] = None) -> Dict:
@@ -503,6 +535,470 @@ def get_cv_upload_url(event: Dict) -> Dict:
         return _error_response(500, f"Internal error: {str(e)}", "InternalError")
 
 
+# ============================================================================
+# RECRUITER SUBMISSION FUNCTIONS
+# ============================================================================
+
+def create_recruiter_submission(event: Dict) -> Dict:
+    """
+    POST /recruiter-submissions
+    Create new recruiter submission
+    """
+    try:
+        body = json.loads(event.get('body') or '{}')
+
+        # Generate submission ID
+        rec_id = _generate_rec_id()
+        prefix = _rec_prefix(rec_id)
+
+        # Build metadata
+        meta = {
+            "submission_id": rec_id,
+            "type": "recruiter_submission",
+            "created_at": _utc_now(),
+            "updated_at": _utc_now(),
+            "status": "new",  # new, contacted, cv_sent, closed
+            "recruiter": {
+                "name": body.get("recruiter", {}).get("name", ""),
+                "email": body.get("recruiter", {}).get("email", ""),
+                "phone": body.get("recruiter", {}).get("phone", ""),
+                "agency": body.get("recruiter", {}).get("agency", "")
+            },
+            "job": {
+                "title": body.get("job", {}).get("title", ""),
+                "company": body.get("job", {}).get("company", ""),
+                "salary_min": body.get("job", {}).get("salary_min", 0),
+                "salary_max": body.get("job", {}).get("salary_max", 0),
+                "currency": body.get("job", {}).get("currency", "MYR"),
+                "requirements": body.get("job", {}).get("requirements", ""),
+                "skills": body.get("job", {}).get("skills", []),
+                "description": body.get("job", {}).get("description", "")
+            },
+            "files": {
+                "job_description": f"{prefix}jd.pdf",
+                "customized_cv": None
+            },
+            "admin_notes": "",
+            "contact_history": []
+        }
+
+        # Save metadata to S3
+        s3.put_object(
+            Bucket=BUCKET_NAME,
+            Key=f"{prefix}meta.json",
+            Body=json.dumps(meta, ensure_ascii=False, indent=2).encode('utf-8'),
+            ContentType="application/json",
+            Metadata={
+                'submission-id': rec_id,
+                'created-at': meta['created_at']
+            }
+        )
+
+        # Generate presigned URL for JD upload
+        jd_upload_url = s3.generate_presigned_url(
+            ClientMethod='put_object',
+            Params={
+                "Bucket": BUCKET_NAME,
+                "Key": meta["files"]["job_description"],
+                "ContentType": "application/pdf"
+            },
+            ExpiresIn=PRESIGNED_URL_EXPIRY
+        )
+
+        logger.info(f"Created recruiter submission: {rec_id}")
+
+        return _response(200, {
+            "submission_id": rec_id,
+            "jd_upload_url": jd_upload_url,
+            "jd_upload_url_expires_in": PRESIGNED_URL_EXPIRY,
+            "created_at": meta["created_at"]
+        })
+
+    except json.JSONDecodeError as e:
+        return _error_response(400, f"Invalid JSON: {str(e)}", "InvalidJSON")
+    except ClientError as e:
+        return _error_response(500, f"S3 error: {str(e)}", "S3Error")
+    except Exception as e:
+        logger.exception("Unexpected error in create_recruiter_submission")
+        return _error_response(500, f"Internal error: {str(e)}", "InternalError")
+
+
+def list_recruiter_submissions(event: Dict) -> Dict:
+    """
+    GET /recruiter-submissions
+    List all recruiter submissions with optional filters
+    """
+    try:
+        # Parse query parameters
+        query_params = event.get('queryStringParameters') or {}
+        status_filter = query_params.get('status')
+        limit = min(int(query_params.get('limit', '100')), 1000)
+
+        submissions = []
+
+        logger.info(f"Listing recruiter submissions from bucket: {BUCKET_NAME}")
+
+        # List recruiters prefix
+        paginator = s3.get_paginator('list_objects_v2')
+        page_iterator = paginator.paginate(
+            Bucket=BUCKET_NAME,
+            Prefix='recruiters/',
+            Delimiter='/'
+        )
+
+        # Get all year folders
+        years = []
+        for page in page_iterator:
+            for prefix in page.get('CommonPrefixes', []):
+                year_prefix = prefix['Prefix']
+                years.append(year_prefix)
+
+        # For each year, list submissions
+        for year_prefix in years:
+            rec_paginator = s3.get_paginator('list_objects_v2')
+            rec_page_iterator = rec_paginator.paginate(
+                Bucket=BUCKET_NAME,
+                Prefix=year_prefix,
+                Delimiter='/'
+            )
+
+            for page in rec_page_iterator:
+                for rec_prefix in page.get('CommonPrefixes', []):
+                    rec_folder = rec_prefix['Prefix']
+                    meta_key = f"{rec_folder}meta.json"
+
+                    try:
+                        # Get meta.json for each submission
+                        obj = s3.get_object(Bucket=BUCKET_NAME, Key=meta_key)
+                        meta = json.loads(obj['Body'].read().decode('utf-8'))
+
+                        # Apply status filter if provided
+                        if status_filter and meta.get('status') != status_filter:
+                            continue
+
+                        # Add summary info
+                        submissions.append({
+                            "submission_id": meta.get("submission_id"),
+                            "created_at": meta.get("created_at"),
+                            "updated_at": meta.get("updated_at"),
+                            "status": meta.get("status"),
+                            "recruiter_name": meta.get("recruiter", {}).get("name"),
+                            "recruiter_email": meta.get("recruiter", {}).get("email"),
+                            "job_title": meta.get("job", {}).get("title"),
+                            "company": meta.get("job", {}).get("company"),
+                            "salary_max": meta.get("job", {}).get("salary_max")
+                        })
+
+                        # Limit results
+                        if len(submissions) >= limit:
+                            break
+
+                    except ClientError as e:
+                        logger.warning(f"Could not read {meta_key}: {str(e)}")
+                        continue
+
+                if len(submissions) >= limit:
+                    break
+
+            if len(submissions) >= limit:
+                break
+
+        # Sort by created_at descending (newest first)
+        submissions.sort(key=lambda x: x.get('created_at', ''), reverse=True)
+
+        logger.info(f"Found {len(submissions)} recruiter submissions")
+
+        return _response(200, {
+            "submissions": submissions,
+            "count": len(submissions),
+            "filters": {
+                "status": status_filter,
+                "limit": limit
+            }
+        })
+
+    except ClientError as e:
+        return _error_response(500, f"S3 error: {str(e)}", "S3Error")
+    except Exception as e:
+        logger.exception("Unexpected error in list_recruiter_submissions")
+        return _error_response(500, f"Internal error: {str(e)}", "InternalError")
+
+
+def get_recruiter_submission(event: Dict) -> Dict:
+    """
+    GET /recruiter-submissions/{id}
+    Get single recruiter submission with download URLs
+    """
+    try:
+        path_params = event.get('pathParameters') or {}
+        rec_id = path_params.get('id')
+
+        if not rec_id:
+            return _error_response(400, "Missing submission ID", "InvalidRequest")
+
+        # Get metadata
+        prefix = _rec_prefix(rec_id)
+        meta_key = f"{prefix}meta.json"
+
+        try:
+            obj = s3.get_object(Bucket=BUCKET_NAME, Key=meta_key)
+            meta = json.loads(obj['Body'].read().decode('utf-8'))
+        except ClientError as e:
+            if e.response['Error']['Code'] == 'NoSuchKey':
+                return _error_response(404, f"Submission not found: {rec_id}", "NotFound")
+            raise
+
+        # Generate presigned download URLs
+        jd_key = meta.get("files", {}).get("job_description")
+        cv_key = meta.get("files", {}).get("customized_cv")
+
+        jd_download_url = None
+        cv_download_url = None
+
+        if jd_key:
+            try:
+                s3.head_object(Bucket=BUCKET_NAME, Key=jd_key)
+                jd_download_url = s3.generate_presigned_url(
+                    ClientMethod='get_object',
+                    Params={"Bucket": BUCKET_NAME, "Key": jd_key},
+                    ExpiresIn=PRESIGNED_URL_EXPIRY
+                )
+            except ClientError:
+                logger.warning(f"JD not found for {rec_id}: {jd_key}")
+
+        if cv_key:
+            try:
+                s3.head_object(Bucket=BUCKET_NAME, Key=cv_key)
+                cv_download_url = s3.generate_presigned_url(
+                    ClientMethod='get_object',
+                    Params={"Bucket": BUCKET_NAME, "Key": cv_key},
+                    ExpiresIn=PRESIGNED_URL_EXPIRY
+                )
+            except ClientError:
+                logger.warning(f"Custom CV not found for {rec_id}: {cv_key}")
+
+        meta["jd_download_url"] = jd_download_url
+        meta["cv_download_url"] = cv_download_url
+        meta["download_url_expires_in"] = PRESIGNED_URL_EXPIRY
+
+        logger.info(f"Retrieved recruiter submission: {rec_id}")
+
+        return _response(200, meta)
+
+    except ValueError as e:
+        return _error_response(400, str(e), "InvalidRequest")
+    except ClientError as e:
+        return _error_response(500, f"S3 error: {str(e)}", "S3Error")
+    except Exception as e:
+        logger.exception("Unexpected error in get_recruiter_submission")
+        return _error_response(500, f"Internal error: {str(e)}", "InternalError")
+
+
+def update_recruiter_status(event: Dict) -> Dict:
+    """
+    PUT /recruiter-submissions/{id}/status
+    Update submission status and add to contact history
+    """
+    try:
+        path_params = event.get('pathParameters') or {}
+        rec_id = path_params.get('id')
+
+        if not rec_id:
+            return _error_response(400, "Missing submission ID", "InvalidRequest")
+
+        body = json.loads(event.get('body') or '{}')
+        new_status = body.get('status')
+        contact_note = body.get('note', '')
+
+        if not new_status:
+            return _error_response(400, "Missing status field", "InvalidRequest")
+
+        # Get existing metadata
+        prefix = _rec_prefix(rec_id)
+        meta_key = f"{prefix}meta.json"
+
+        try:
+            obj = s3.get_object(Bucket=BUCKET_NAME, Key=meta_key)
+            meta = json.loads(obj['Body'].read().decode('utf-8'))
+        except ClientError as e:
+            if e.response['Error']['Code'] == 'NoSuchKey':
+                return _error_response(404, f"Submission not found: {rec_id}", "NotFound")
+            raise
+
+        # Update status
+        old_status = meta.get('status')
+        meta['status'] = new_status
+        meta['updated_at'] = _utc_now()
+
+        # Add to contact history if status changed
+        if old_status != new_status:
+            if 'contact_history' not in meta:
+                meta['contact_history'] = []
+
+            meta['contact_history'].append({
+                "date": _utc_now(),
+                "old_status": old_status,
+                "new_status": new_status,
+                "note": contact_note
+            })
+
+        # Save updated metadata
+        s3.put_object(
+            Bucket=BUCKET_NAME,
+            Key=meta_key,
+            Body=json.dumps(meta, ensure_ascii=False, indent=2).encode('utf-8'),
+            ContentType="application/json",
+            Metadata={
+                'submission-id': rec_id,
+                'updated-at': meta['updated_at']
+            }
+        )
+
+        logger.info(f"Updated status for {rec_id}: {old_status} -> {new_status}")
+
+        return _response(200, {
+            "submission_id": rec_id,
+            "updated": True,
+            "old_status": old_status,
+            "new_status": new_status,
+            "updated_at": meta['updated_at']
+        })
+
+    except json.JSONDecodeError as e:
+        return _error_response(400, f"Invalid JSON: {str(e)}", "InvalidJSON")
+    except ValueError as e:
+        return _error_response(400, str(e), "InvalidRequest")
+    except ClientError as e:
+        return _error_response(500, f"S3 error: {str(e)}", "S3Error")
+    except Exception as e:
+        logger.exception("Unexpected error in update_recruiter_status")
+        return _error_response(500, f"Internal error: {str(e)}", "InternalError")
+
+
+def update_recruiter_notes(event: Dict) -> Dict:
+    """
+    PUT /recruiter-submissions/{id}/notes
+    Update admin notes for submission
+    """
+    try:
+        path_params = event.get('pathParameters') or {}
+        rec_id = path_params.get('id')
+
+        if not rec_id:
+            return _error_response(400, "Missing submission ID", "InvalidRequest")
+
+        body = json.loads(event.get('body') or '{}')
+        notes = body.get('notes', '')
+
+        # Get existing metadata
+        prefix = _rec_prefix(rec_id)
+        meta_key = f"{prefix}meta.json"
+
+        try:
+            obj = s3.get_object(Bucket=BUCKET_NAME, Key=meta_key)
+            meta = json.loads(obj['Body'].read().decode('utf-8'))
+        except ClientError as e:
+            if e.response['Error']['Code'] == 'NoSuchKey':
+                return _error_response(404, f"Submission not found: {rec_id}", "NotFound")
+            raise
+
+        # Update notes
+        meta['admin_notes'] = notes
+        meta['updated_at'] = _utc_now()
+
+        # Save updated metadata
+        s3.put_object(
+            Bucket=BUCKET_NAME,
+            Key=meta_key,
+            Body=json.dumps(meta, ensure_ascii=False, indent=2).encode('utf-8'),
+            ContentType="application/json"
+        )
+
+        logger.info(f"Updated notes for {rec_id}")
+
+        return _response(200, {
+            "submission_id": rec_id,
+            "updated": True,
+            "updated_at": meta['updated_at']
+        })
+
+    except json.JSONDecodeError as e:
+        return _error_response(400, f"Invalid JSON: {str(e)}", "InvalidJSON")
+    except ValueError as e:
+        return _error_response(400, str(e), "InvalidRequest")
+    except ClientError as e:
+        return _error_response(500, f"S3 error: {str(e)}", "S3Error")
+    except Exception as e:
+        logger.exception("Unexpected error in update_recruiter_notes")
+        return _error_response(500, f"Internal error: {str(e)}", "InternalError")
+
+
+def upload_custom_cv(event: Dict) -> Dict:
+    """
+    POST /recruiter-submissions/{id}/cv-upload
+    Get presigned URL for uploading customized CV
+    """
+    try:
+        path_params = event.get('pathParameters') or {}
+        rec_id = path_params.get('id')
+
+        if not rec_id:
+            return _error_response(400, "Missing submission ID", "InvalidRequest")
+
+        # Verify submission exists
+        prefix = _rec_prefix(rec_id)
+        meta_key = f"{prefix}meta.json"
+
+        try:
+            obj = s3.get_object(Bucket=BUCKET_NAME, Key=meta_key)
+            meta = json.loads(obj['Body'].read().decode('utf-8'))
+        except ClientError as e:
+            if e.response['Error']['Code'] == 'NoSuchKey':
+                return _error_response(404, f"Submission not found: {rec_id}", "NotFound")
+            raise
+
+        # Generate presigned URL for custom CV upload
+        cv_key = f"{prefix}cv_custom.pdf"
+        cv_upload_url = s3.generate_presigned_url(
+            ClientMethod='put_object',
+            Params={
+                "Bucket": BUCKET_NAME,
+                "Key": cv_key,
+                "ContentType": "application/pdf"
+            },
+            ExpiresIn=PRESIGNED_URL_EXPIRY
+        )
+
+        # Update metadata with CV key
+        meta['files']['customized_cv'] = cv_key
+        meta['updated_at'] = _utc_now()
+
+        s3.put_object(
+            Bucket=BUCKET_NAME,
+            Key=meta_key,
+            Body=json.dumps(meta, ensure_ascii=False, indent=2).encode('utf-8'),
+            ContentType="application/json"
+        )
+
+        logger.info(f"Generated custom CV upload URL for: {rec_id}")
+
+        return _response(200, {
+            "submission_id": rec_id,
+            "cv_upload_url": cv_upload_url,
+            "cv_upload_url_expires_in": PRESIGNED_URL_EXPIRY,
+            "content_type": "application/pdf",
+            "max_size_bytes": MAX_CV_SIZE
+        })
+
+    except ValueError as e:
+        return _error_response(400, str(e), "InvalidRequest")
+    except ClientError as e:
+        return _error_response(500, f"S3 error: {str(e)}", "S3Error")
+    except Exception as e:
+        logger.exception("Unexpected error in upload_custom_cv")
+        return _error_response(500, f"Internal error: {str(e)}", "InternalError")
+
+
 def lambda_handler(event: Dict, context: Any) -> Dict:
     """
     Main Lambda handler
@@ -530,8 +1026,34 @@ def lambda_handler(event: Dict, context: Any) -> Dict:
 
     # Route to appropriate handler
     try:
+        # ========== RECRUITER SUBMISSION ENDPOINTS ==========
+        # POST /recruiter-submissions - Create submission
+        if method == 'POST' and path == '/recruiter-submissions':
+            return create_recruiter_submission(event)
+
+        # GET /recruiter-submissions - List all submissions
+        elif method == 'GET' and path == '/recruiter-submissions':
+            return list_recruiter_submissions(event)
+
+        # GET /recruiter-submissions/{id} - Get one submission
+        elif method == 'GET' and path.startswith('/recruiter-submissions/') and not path.endswith(('/status', '/notes', '/cv-upload')):
+            return get_recruiter_submission(event)
+
+        # PUT /recruiter-submissions/{id}/status - Update status
+        elif method == 'PUT' and path.endswith('/status'):
+            return update_recruiter_status(event)
+
+        # PUT /recruiter-submissions/{id}/notes - Update notes
+        elif method == 'PUT' and path.endswith('/notes'):
+            return update_recruiter_notes(event)
+
+        # POST /recruiter-submissions/{id}/cv-upload - Upload custom CV
+        elif method == 'POST' and path.startswith('/recruiter-submissions/') and path.endswith('/cv-upload'):
+            return upload_custom_cv(event)
+
+        # ========== JOB APPLICATION ENDPOINTS ==========
         # POST /applications - Create
-        if method == 'POST' and path == '/applications':
+        elif method == 'POST' and path == '/applications':
             return create_application(event)
 
         # GET /applications - List
