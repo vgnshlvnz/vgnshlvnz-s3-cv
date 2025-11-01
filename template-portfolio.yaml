@@ -1,0 +1,292 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  CV Portfolio Static Website
+
+  Serverless infrastructure for hosting cv.vgnshlv.nz portfolio site
+  with S3, CloudFront CDN, and SSL certificate.
+
+Metadata:
+  AWS::ServerlessRepo::Application:
+    Name: vgnshlvnz-portfolio
+    Description: Personal CV portfolio website with CloudFront CDN
+    Author: vgnshlvnz
+    SpdxLicenseId: MIT
+    LicenseUrl: LICENSE
+    ReadmeUrl: README.md
+    Labels: ['portfolio', 'static-website', 'cloudfront', 's3']
+    HomePageUrl: https://cv.vgnshlv.nz
+    SemanticVersion: 1.0.0
+    SourceCodeUrl: https://github.com/vgnshlvnz/vgnshlvnz-s3-cv
+
+Parameters:
+  BucketName:
+    Type: String
+    Default: vgnshlvnz-portfolio
+    Description: S3 bucket name for portfolio hosting
+    AllowedPattern: ^[a-z0-9][a-z0-9-]*[a-z0-9]$
+    ConstraintDescription: Bucket name must be lowercase, numbers, and hyphens only
+
+  DomainName:
+    Type: String
+    Default: cv.vgnshlv.nz
+    Description: Custom domain name for portfolio
+    AllowedPattern: ^[a-z0-9.-]+$
+
+  CertificateArn:
+    Type: String
+    Default: arn:aws:acm:us-east-1:460742884565:certificate/eca0af92-5e9e-4e06-a658-ca38bfa5b8c5
+    Description: ARN of ACM certificate (must be in us-east-1 for CloudFront)
+
+  Environment:
+    Type: String
+    Default: prod
+    AllowedValues:
+      - dev
+      - staging
+      - prod
+    Description: Deployment environment
+
+Conditions:
+  IsProduction: !Equals [!Ref Environment, prod]
+
+Resources:
+  # S3 Bucket for static website hosting
+  PortfolioBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Ref BucketName
+      AccessControl: Private
+      WebsiteConfiguration:
+        IndexDocument: index.html
+        ErrorDocument: index.html  # SPA-style routing fallback
+      VersioningConfiguration:
+        Status: !If [IsProduction, Enabled, Suspended]
+      LifecycleConfiguration:
+        Rules:
+          - Id: TransitionOldVersionsToIA
+            Status: Enabled
+            NoncurrentVersionTransitions:
+              - StorageClass: STANDARD_IA
+                TransitionInDays: 30
+              - StorageClass: GLACIER
+                TransitionInDays: 90
+            NoncurrentVersionExpirationInDays: 365
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: false
+        BlockPublicPolicy: false
+        IgnorePublicAcls: false
+        RestrictPublicBuckets: false
+      Tags:
+        - Key: Project
+          Value: CVPortfolio
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: ManagedBy
+          Value: SAM
+        - Key: CostCenter
+          Value: Personal
+
+  # S3 Bucket Policy for public read access
+  PortfolioBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref PortfolioBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: PublicReadGetObject
+            Effect: Allow
+            Principal: '*'
+            Action: s3:GetObject
+            Resource: !Sub '${PortfolioBucket.Arn}/*'
+          - Sid: AllowCloudFrontServicePrincipal
+            Effect: Allow
+            Principal:
+              Service: cloudfront.amazonaws.com
+            Action: s3:GetObject
+            Resource: !Sub '${PortfolioBucket.Arn}/*'
+            Condition:
+              StringEquals:
+                AWS:SourceArn: !Sub 'arn:aws:cloudfront::${AWS::AccountId}:distribution/${CloudFrontDistribution}'
+
+  # CloudFront Origin Access Control (modern replacement for OAI)
+  CloudFrontOAC:
+    Type: AWS::CloudFront::OriginAccessControl
+    Properties:
+      OriginAccessControlConfig:
+        Name: !Sub ${BucketName}-OAC
+        OriginAccessControlOriginType: s3
+        SigningBehavior: always
+        SigningProtocol: sigv4
+        Description: Origin Access Control for portfolio S3 bucket
+
+  # CloudFront Distribution
+  CloudFrontDistribution:
+    Type: AWS::CloudFront::Distribution
+    DependsOn: PortfolioBucketPolicy
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        Comment: !Sub 'CDN for ${DomainName}'
+        DefaultRootObject: index.html
+        HttpVersion: http2and3
+        PriceClass: PriceClass_100  # US, Canada, Europe (cheapest)
+
+        # Custom domain configuration
+        Aliases:
+          - !Ref DomainName
+
+        ViewerCertificate:
+          AcmCertificateArn: !Ref CertificateArn
+          SslSupportMethod: sni-only
+          MinimumProtocolVersion: TLSv1.2_2021
+
+        # Origin configuration (S3 website endpoint)
+        Origins:
+          - Id: S3Origin
+            DomainName: !Sub '${BucketName}.s3-website.${AWS::Region}.amazonaws.com'
+            CustomOriginConfig:
+              HTTPPort: 80
+              HTTPSPort: 443
+              OriginProtocolPolicy: http-only  # S3 website endpoints only support HTTP
+              OriginSSLProtocols:
+                - TLSv1.2
+
+        # Default cache behavior
+        DefaultCacheBehavior:
+          TargetOriginId: S3Origin
+          ViewerProtocolPolicy: redirect-to-https
+          AllowedMethods:
+            - GET
+            - HEAD
+            - OPTIONS
+          CachedMethods:
+            - GET
+            - HEAD
+            - OPTIONS
+          Compress: true
+          CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6  # CachingOptimized
+          ResponseHeadersPolicyId: 5cc3b908-e619-4b99-88e5-2cf7f45965bd  # SimpleCORS
+
+        # Custom error responses
+        CustomErrorResponses:
+          - ErrorCode: 403
+            ResponseCode: 200
+            ResponsePagePath: /index.html
+            ErrorCachingMinTTL: 300
+          - ErrorCode: 404
+            ResponseCode: 200
+            ResponsePagePath: /index.html
+            ErrorCachingMinTTL: 300
+
+        # Security and performance
+        IPV6Enabled: true
+        Logging:
+          Bucket: !If
+            - IsProduction
+            - !GetAtt LoggingBucket.DomainName
+            - !Ref AWS::NoValue
+          Prefix: cloudfront/
+          IncludeCookies: false
+
+      Tags:
+        - Key: Project
+          Value: CVPortfolio
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: ManagedBy
+          Value: SAM
+
+  # S3 Bucket for CloudFront access logs (production only)
+  LoggingBucket:
+    Type: AWS::S3::Bucket
+    Condition: IsProduction
+    Properties:
+      BucketName: !Sub '${BucketName}-logs'
+      AccessControl: LogDeliveryWrite
+      LifecycleConfiguration:
+        Rules:
+          - Id: DeleteOldLogs
+            Status: Enabled
+            ExpirationInDays: 90
+            Transitions:
+              - StorageClass: STANDARD_IA
+                TransitionInDays: 30
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      Tags:
+        - Key: Project
+          Value: CVPortfolio
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Purpose
+          Value: CloudFrontLogs
+
+  # SNS Topic for deployment notifications (optional)
+  DeploymentTopic:
+    Type: AWS::SNS::Topic
+    Condition: IsProduction
+    Properties:
+      DisplayName: Portfolio Deployment Notifications
+      TopicName: portfolio-deployment-notifications
+      Tags:
+        - Key: Project
+          Value: CVPortfolio
+        - Key: Environment
+          Value: !Ref Environment
+
+Outputs:
+  BucketName:
+    Description: S3 bucket name for portfolio hosting
+    Value: !Ref PortfolioBucket
+    Export:
+      Name: !Sub '${AWS::StackName}-BucketName'
+
+  BucketWebsiteURL:
+    Description: S3 website endpoint URL
+    Value: !GetAtt PortfolioBucket.WebsiteURL
+    Export:
+      Name: !Sub '${AWS::StackName}-WebsiteURL'
+
+  CloudFrontDistributionId:
+    Description: CloudFront distribution ID
+    Value: !Ref CloudFrontDistribution
+    Export:
+      Name: !Sub '${AWS::StackName}-DistributionId'
+
+  CloudFrontDomainName:
+    Description: CloudFront distribution domain name
+    Value: !GetAtt CloudFrontDistribution.DomainName
+    Export:
+      Name: !Sub '${AWS::StackName}-DistributionDomain'
+
+  CustomDomainURL:
+    Description: Custom domain URL for portfolio
+    Value: !Sub 'https://${DomainName}'
+    Export:
+      Name: !Sub '${AWS::StackName}-CustomDomainURL'
+
+  CloudFrontURL:
+    Description: CloudFront HTTPS URL
+    Value: !Sub 'https://${CloudFrontDistribution.DomainName}'
+    Export:
+      Name: !Sub '${AWS::StackName}-CloudFrontURL'
+
+  DeployCommand:
+    Description: Command to sync local files to S3
+    Value: !Sub 'aws s3 sync . s3://${PortfolioBucket}/ --exclude ".git/*" --exclude "*.md" --exclude "template*.yaml" --exclude "samconfig.toml"'
+
+  InvalidateCommand:
+    Description: Command to invalidate CloudFront cache
+    Value: !Sub 'aws cloudfront create-invalidation --distribution-id ${CloudFrontDistribution} --paths "/*"'
+
+  LoggingBucketName:
+    Condition: IsProduction
+    Description: S3 bucket for CloudFront access logs
+    Value: !Ref LoggingBucket
+    Export:
+      Name: !Sub '${AWS::StackName}-LoggingBucket'

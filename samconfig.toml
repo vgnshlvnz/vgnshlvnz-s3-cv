@@ -1,0 +1,164 @@
+# SAM Configuration for Portfolio and Job Tracker deployments
+# https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/serverless-sam-cli-config.html
+
+version = 0.1
+
+# ============================================================================
+# PORTFOLIO STACK DEPLOYMENT
+# ============================================================================
+
+[portfolio.deploy]
+[portfolio.deploy.parameters]
+stack_name = "vgnshlvnz-portfolio-stack"
+template_file = "template-portfolio.yaml"
+s3_prefix = "portfolio"
+region = "ap-southeast-5"
+capabilities = "CAPABILITY_IAM"
+parameter_overrides = [
+    "BucketName=vgnshlvnz-portfolio",
+    "DomainName=cv.vgnshlv.nz",
+    "CertificateArn=arn:aws:acm:us-east-1:460742884565:certificate/eca0af92-5e9e-4e06-a658-ca38bfa5b8c5",
+    "Environment=prod"
+]
+confirm_changeset = true
+resolve_s3 = true
+s3_bucket = "aws-sam-cli-managed-default-samclisourcebucket-ap-southeast-5"
+disable_rollback = false
+on_failure = "ROLLBACK"
+tags = [
+    "Project=CVPortfolio",
+    "Environment=prod",
+    "ManagedBy=SAM",
+    "Repository=https://github.com/vgnshlvnz/vgnshlvnz-s3-cv"
+]
+
+[portfolio.build]
+[portfolio.build.parameters]
+cached = true
+parallel = true
+
+[portfolio.validate]
+[portfolio.validate.parameters]
+lint = true
+
+# ============================================================================
+# JOB TRACKER STACK DEPLOYMENT
+# ============================================================================
+
+[job-tracker.deploy]
+[job-tracker.deploy.parameters]
+stack_name = "vgnshlvnz-job-tracker-stack"
+template_file = "template-job-tracker.yaml"
+s3_prefix = "job-tracker"
+region = "ap-southeast-5"
+capabilities = "CAPABILITY_IAM"
+parameter_overrides = [
+    "BucketName=vgnshlvnz-job-tracker",
+    "Environment=prod",
+    "EnableDynamoDB=false",
+    "PresignedUrlExpiry=900"
+]
+confirm_changeset = true
+resolve_s3 = true
+disable_rollback = false
+on_failure = "ROLLBACK"
+tags = [
+    "Project=JobTracker",
+    "Environment=prod",
+    "ManagedBy=SAM",
+    "Repository=https://github.com/vgnshlvnz/vgnshlvnz-s3-cv"
+]
+
+[job-tracker.build]
+[job-tracker.build.parameters]
+cached = true
+parallel = true
+use_container = false
+
+[job-tracker.validate]
+[job-tracker.validate.parameters]
+lint = true
+
+# ============================================================================
+# DEVELOPMENT ENVIRONMENT CONFIGS
+# ============================================================================
+
+[dev-job-tracker.deploy]
+[dev-job-tracker.deploy.parameters]
+stack_name = "vgnshlvnz-job-tracker-dev"
+template_file = "template-job-tracker.yaml"
+s3_prefix = "job-tracker-dev"
+region = "ap-southeast-5"
+capabilities = "CAPABILITY_IAM"
+parameter_overrides = [
+    "BucketName=vgnshlvnz-job-tracker-dev",
+    "Environment=dev",
+    "EnableDynamoDB=false",
+    "PresignedUrlExpiry=1800"
+]
+confirm_changeset = false  # Auto-deploy in dev
+resolve_s3 = true
+disable_rollback = true
+on_failure = "DELETE"
+tags = [
+    "Project=JobTracker",
+    "Environment=dev",
+    "ManagedBy=SAM"
+]
+
+# ============================================================================
+# STAGING ENVIRONMENT CONFIG
+# ============================================================================
+
+[staging-job-tracker.deploy]
+[staging-job-tracker.deploy.parameters]
+stack_name = "vgnshlvnz-job-tracker-staging"
+template_file = "template-job-tracker.yaml"
+s3_prefix = "job-tracker-staging"
+region = "ap-southeast-5"
+capabilities = "CAPABILITY_IAM"
+parameter_overrides = [
+    "BucketName=vgnshlvnz-job-tracker-staging",
+    "Environment=staging",
+    "EnableDynamoDB=false",
+    "PresignedUrlExpiry=900"
+]
+confirm_changeset = true
+resolve_s3 = true
+disable_rollback = false
+on_failure = "ROLLBACK"
+tags = [
+    "Project=JobTracker",
+    "Environment=staging",
+    "ManagedBy=SAM"
+]
+
+# ============================================================================
+# DEPLOYMENT COMMANDS REFERENCE
+# ============================================================================
+
+# Deploy Portfolio stack:
+#   sam deploy --config-env portfolio
+#
+# Deploy Job Tracker stack:
+#   sam deploy --config-env job-tracker
+#
+# Deploy to dev environment:
+#   sam deploy --config-env dev-job-tracker
+#
+# Deploy to staging:
+#   sam deploy --config-env staging-job-tracker
+#
+# Build before deploy:
+#   sam build --config-env job-tracker
+#   sam deploy --config-env job-tracker --no-confirm-changeset
+#
+# Validate templates:
+#   sam validate --template template-portfolio.yaml
+#   sam validate --template template-job-tracker.yaml
+#
+# View logs:
+#   sam logs --stack-name vgnshlvnz-job-tracker-stack --tail
+#
+# Delete stack:
+#   sam delete --stack-name vgnshlvnz-job-tracker-dev --no-prompts

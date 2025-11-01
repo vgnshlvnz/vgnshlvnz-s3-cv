@@ -1,0 +1,466 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Submit Job Opportunity - Vigneshwaran Ravichandran</title>
+    <meta name="description" content="Submit a job opportunity for Vigneshwaran Ravichandran - IT & DevOps Engineer"/>
+    
+    <!-- Styling -->
+    <link href="https://fonts.googleapis.com/css2?family=Liberation+Mono:wght@400;700&family=Liberation+Sans:wght@400;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="css/style.css">
+    
+    <style>
+        .application-form {
+            max-width: 800px;
+            margin: 2rem auto;
+            padding: 2rem;
+            background: #fafafa;
+            border: 1px solid #ddd;
+        }
+        
+        .form-section {
+            margin-bottom: 2rem;
+            padding: 1rem;
+            border-left: 3px solid #333;
+            background: white;
+        }
+        
+        .form-group {
+            margin-bottom: 1rem;
+        }
+        
+        .form-group label {
+            display: block;
+            font-weight: bold;
+            margin-bottom: 0.5rem;
+            font-family: 'Liberation Mono', monospace;
+        }
+        
+        .form-group input,
+        .form-group select,
+        .form-group textarea {
+            width: 100%;
+            padding: 0.75rem;
+            border: 1px solid #ccc;
+            font-family: 'Liberation Sans', sans-serif;
+            font-size: 1rem;
+        }
+        
+        .form-group textarea {
+            min-height: 100px;
+            resize: vertical;
+        }
+        
+        .form-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1rem;
+        }
+        
+        .submit-btn {
+            background: #333;
+            color: white;
+            padding: 1rem 2rem;
+            border: none;
+            cursor: pointer;
+            font-family: 'Liberation Mono', monospace;
+            font-size: 1rem;
+            transition: background 0.3s;
+        }
+        
+        .submit-btn:hover {
+            background: #555;
+        }
+        
+        .submit-btn:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        
+        .success-message {
+            background: #d4edda;
+            color: #155724;
+            padding: 1rem;
+            border: 1px solid #c3e6cb;
+            margin-bottom: 1rem;
+        }
+        
+        .error-message {
+            background: #f8d7da;
+            color: #721c24;
+            padding: 1rem;
+            border: 1px solid #f5c6cb;
+            margin-bottom: 1rem;
+        }
+        
+        .loading {
+            opacity: 0.6;
+        }
+        
+        .skill-tag {
+            display: inline-block;
+            background: #f0f0f0;
+            padding: 0.25rem 0.5rem;
+            margin: 0.25rem;
+            border: 1px solid #ddd;
+            font-size: 0.9rem;
+        }
+        
+        .back-link {
+            color: #333;
+            text-decoration: none;
+            font-family: 'Liberation Mono', monospace;
+            margin-bottom: 2rem;
+            display: inline-block;
+        }
+        
+        .back-link:hover {
+            text-decoration: underline;
+        }
+    </style>
+</head>
+<body>
+
+<div class="application-form">
+    <a href="https://d1cda43lowke66.cloudfront.net" class="back-link">← Back to Portfolio</a>
+    
+    <manpage>
+        <b>JOB OPPORTUNITY SUBMISSION</b><br>
+    </manpage>
+    
+    <main>
+        <p>
+            <b>Name:</b> VIGNESHWARAN RAVICHANDRAN<br>
+            <b>Role:</b> IT & DevOps Engineer<br>
+            <b>Location:</b> Kuala Lumpur, Malaysia<br>
+            <b>Status:</b> <span style="color: green;">Available for opportunities</span>
+        </p>
+    </main>
+
+    <div id="form-messages"></div>
+
+    <form id="jobForm" onsubmit="return handleSubmit(event)">
+        
+        <!-- Company & Role Information -->
+        <div class="form-section">
+            <h3>POSITION DETAILS</h3>
+            
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="job_title">Job Title *</label>
+                    <input type="text" id="job_title" name="job_title" required 
+                           placeholder="e.g. Senior DevOps Engineer">
+                </div>
+                
+                <div class="form-group">
+                    <label for="company_name">Company Name *</label>
+                    <input type="text" id="company_name" name="company_name" required 
+                           placeholder="e.g. TechCorp Malaysia">
+                </div>
+            </div>
+            
+            <div class="form-group">
+                <label for="job_description">Role Description</label>
+                <textarea id="job_description" name="job_description" 
+                          placeholder="Brief description of the role, responsibilities, and requirements..."></textarea>
+            </div>
+        </div>
+
+        <!-- Recruiter Information -->
+        <div class="form-section">
+            <h3>RECRUITER INFORMATION</h3>
+            
+            <div class="form-group">
+                <label for="agency_name">Agency/Company</label>
+                <input type="text" id="agency_name" name="agency_name" 
+                       placeholder="e.g. TechStaff Recruitment or Direct Hire">
+            </div>
+            
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="caller_name">Your Name *</label>
+                    <input type="text" id="caller_name" name="caller_name" required 
+                           placeholder="e.g. Sarah Chen">
+                </div>
+                
+                <div class="form-group">
+                    <label for="caller_email">Email *</label>
+                    <input type="email" id="caller_email" name="caller_email" required 
+                           placeholder="e.g. sarah@techstaff.com.my">
+                </div>
+            </div>
+            
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="caller_phone">Phone</label>
+                    <input type="tel" id="caller_phone" name="caller_phone" 
+                           placeholder="e.g. +60-12-3456789">
+                </div>
+                
+                <div class="form-group">
+                    <label for="contact_method">Preferred Contact Method</label>
+                    <select id="contact_method" name="contact_method">
+                        <option value="email">Email</option>
+                        <option value="phone">Phone</option>
+                        <option value="linkedin">LinkedIn</option>
+                        <option value="whatsapp">WhatsApp</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+
+        <!-- Compensation & Benefits -->
+        <div class="form-section">
+            <h3>COMPENSATION & BENEFITS</h3>
+            
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="salary_min">Salary Range (Min)</label>
+                    <input type="number" id="salary_min" name="salary_min" 
+                           placeholder="8000" min="0">
+                </div>
+                
+                <div class="form-group">
+                    <label for="salary_max">Salary Range (Max)</label>
+                    <input type="number" id="salary_max" name="salary_max" 
+                           placeholder="15000" min="0">
+                </div>
+            </div>
+            
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="currency">Currency</label>
+                    <select id="currency" name="currency">
+                        <option value="MYR">MYR (Malaysian Ringgit)</option>
+                        <option value="USD">USD (US Dollar)</option>
+                        <option value="SGD">SGD (Singapore Dollar)</option>
+                        <option value="EUR">EUR (Euro)</option>
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <label for="salary_period">Pay Period</label>
+                    <select id="salary_period" name="salary_period">
+                        <option value="monthly">Monthly</option>
+                        <option value="annually">Annually</option>
+                        <option value="daily">Daily</option>
+                        <option value="hourly">Hourly</option>
+                    </select>
+                </div>
+            </div>
+            
+            <div class="form-group">
+                <label for="benefits">Benefits & Perks</label>
+                <textarea id="benefits" name="benefits" 
+                          placeholder="e.g. Medical insurance, annual bonus, remote work options, flexible hours..."></textarea>
+            </div>
+        </div>
+
+        <!-- Technical Requirements -->
+        <div class="form-section">
+            <h3>TECHNICAL REQUIREMENTS</h3>
+            
+            <div class="form-group">
+                <label for="required_skills">Required Skills</label>
+                <textarea id="required_skills" name="required_skills" 
+                          placeholder="e.g. AWS, Docker, Kubernetes, Python, Terraform..."></textarea>
+            </div>
+            
+            <div class="form-group">
+                <label for="nice_to_have">Nice to Have</label>
+                <textarea id="nice_to_have" name="nice_to_have" 
+                          placeholder="e.g. Ansible, Grafana, Prometheus, CI/CD experience..."></textarea>
+            </div>
+        </div>
+
+        <!-- Additional Information -->
+        <div class="form-section">
+            <h3>ADDITIONAL INFORMATION</h3>
+            
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="work_arrangement">Work Arrangement</label>
+                    <select id="work_arrangement" name="work_arrangement">
+                        <option value="on-site">On-site</option>
+                        <option value="remote">Fully Remote</option>
+                        <option value="hybrid">Hybrid</option>
+                        <option value="flexible">Flexible</option>
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <label for="urgency">Urgency</label>
+                    <select id="urgency" name="urgency">
+                        <option value="normal">Normal</option>
+                        <option value="urgent">Urgent</option>
+                        <option value="flexible">Flexible</option>
+                    </select>
+                </div>
+            </div>
+            
+            <div class="form-group">
+                <label for="additional_notes">Additional Notes</label>
+                <textarea id="additional_notes" name="additional_notes" 
+                          placeholder="Any additional information about the role, team, company culture, etc..."></textarea>
+            </div>
+        </div>
+
+        <!-- Submit Button -->
+        <div class="form-section">
+            <div id="loading" style="display: none;">
+                <p>Submitting application...</p>
+            </div>
+            
+            <button type="submit" class="submit-btn">
+                Submit Job Opportunity
+            </button>
+            
+            <p style="margin-top: 1rem; font-size: 0.9rem; color: #666;">
+                After submission, I'll review the opportunity and respond within 24-48 hours with my customized CV if interested.
+            </p>
+        </div>
+    </form>
+</div>
+
+<script>
+    const API_BASE_URL = 'https://riyot36gu9.execute-api.ap-southeast-5.amazonaws.com/prod';
+
+    // Form submission handler
+    async function handleSubmit(event) {
+        event.preventDefault();
+
+        const form = event.target;
+        const submitBtn = form.querySelector('button[type=submit]');
+        const messagesDiv = document.getElementById('form-messages');
+
+        // Validate required fields
+        const requiredFields = form.querySelectorAll('[required]');
+        let isValid = true;
+
+        requiredFields.forEach(field => {
+            if (!field.value.trim()) {
+                field.style.borderColor = '#dc3545';
+                isValid = false;
+            } else {
+                field.style.borderColor = '#ced4da';
+            }
+        });
+
+        if (!isValid) {
+            messagesDiv.innerHTML = `
+                <div class="error-message">
+                    <h4>⚠️ Please fill in all required fields</h4>
+                </div>
+            `;
+            return false;
+        }
+
+        // Disable submit button
+        submitBtn.disabled = true;
+        submitBtn.textContent = 'Submitting...';
+
+        // Build request payload matching new schema
+        const payload = {
+            job_title: form.job_title.value,
+            company_name: form.company_name.value,
+            agency_name: form.agency_name.value || '',
+            caller: {
+                name: form.caller_name.value,
+                email: form.caller_email.value,
+                phone: form.caller_phone.value || ''
+            },
+            caller_method: form.contact_method.value,
+            salary: {
+                currency: form.currency.value,
+                min: parseInt(form.salary_min.value) || 0,
+                max: parseInt(form.salary_max.value) || 0,
+                period: form.salary_period.value
+            },
+            perks: form.benefits.value ?
+                   form.benefits.value.split(',').map(p => p.trim()).filter(p => p) :
+                   [],
+            details: {
+                roles: form.job_description.value || '',
+                responsibilities: [],
+                skillsets: form.required_skills.value ?
+                           form.required_skills.value.split(',').map(s => s.trim()).filter(s => s) :
+                           [],
+                questions_asked: [],
+                info_provided: [
+                    `Work arrangement: ${form.work_arrangement.value}`,
+                    `Urgency: ${form.urgency.value}`
+                ]
+            },
+            tags: [form.work_arrangement.value, form.urgency.value]
+        };
+
+        // Add nice-to-have skills if provided
+        if (form.nice_to_have.value) {
+            const niceToHave = form.nice_to_have.value.split(',').map(s => s.trim()).filter(s => s);
+            payload.details.info_provided.push(`Nice to have: ${niceToHave.join(', ')}`);
+        }
+
+        // Add additional notes if provided
+        if (form.additional_notes.value) {
+            payload.details.info_provided.push(`Notes: ${form.additional_notes.value}`);
+        }
+
+        try {
+            // Submit to API
+            const response = await fetch(`${API_BASE_URL}/applications`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(payload)
+            });
+
+            const result = await response.json();
+
+            if (response.ok) {
+                messagesDiv.innerHTML = `
+                    <div class="success-message">
+                        <h4>✅ Application Submitted Successfully!</h4>
+                        <p><strong>Application ID:</strong> ${result.application_id}</p>
+                        <p>Thank you for submitting this opportunity. I'll review the details and respond within 24-48 hours.</p>
+                        <p>If this role matches my expertise, I'll send you a customized CV tailored to the position.</p>
+                    </div>
+                `;
+                form.reset();
+            } else {
+                throw new Error(result.message || 'Submission failed');
+            }
+        } catch (error) {
+            console.error('Submission error:', error);
+            messagesDiv.innerHTML = `
+                <div class="error-message">
+                    <h4>❌ Submission Failed</h4>
+                    <p>${error.message || 'There was an error submitting the application.'}</p>
+                    <p>Please try again or contact me directly at vigneshwaranravichandran11@outlook.com</p>
+                </div>
+            `;
+        } finally {
+            // Re-enable submit button
+            submitBtn.disabled = false;
+            submitBtn.textContent = 'Submit Job Opportunity';
+        }
+
+        return false;
+    }
+
+    // Auto-clear field errors on input
+    document.addEventListener('DOMContentLoaded', function() {
+        const form = document.getElementById('jobForm');
+        const inputs = form.querySelectorAll('input, textarea, select');
+
+        inputs.forEach(input => {
+            input.addEventListener('input', function() {
+                this.style.borderColor = '';
+            });
+        });
+    });
+</script>
+
+</body>
+</html>

@@ -1,0 +1,475 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  Job Application Tracker System
+
+  S3-based job application tracking with Lambda API, presigned URLs for CV uploads,
+  and optional DynamoDB index for fast queries.
+
+Metadata:
+  AWS::ServerlessRepo::Application:
+    Name: vgnshlvnz-job-tracker
+    Description: Serverless job application tracking system with S3 storage
+    Author: vgnshlvnz
+    SpdxLicenseId: MIT
+    Labels: ['job-tracker', 'serverless', 'lambda', 'api-gateway', 's3']
+    SemanticVersion: 1.0.0
+
+Globals:
+  Function:
+    Timeout: 30
+    MemorySize: 256
+    Runtime: python3.12
+    Architectures:
+      - arm64  # Graviton2 - 20% cheaper than x86
+    Environment:
+      Variables:
+        POWERTOOLS_SERVICE_NAME: job-tracker
+        LOG_LEVEL: INFO
+    Tags:
+      Project: JobTracker
+      Environment: !Ref Environment
+      ManagedBy: SAM
+
+Parameters:
+  BucketName:
+    Type: String
+    Default: vgnshlvnz-job-tracker
+    Description: S3 bucket name for job application data
+    AllowedPattern: ^[a-z0-9][a-z0-9-]*[a-z0-9]$
+
+  Environment:
+    Type: String
+    Default: prod
+    AllowedValues:
+      - dev
+      - staging
+      - prod
+    Description: Deployment environment
+
+  EnableDynamoDB:
+    Type: String
+    Default: 'false'
+    AllowedValues:
+      - 'true'
+      - 'false'
+    Description: Enable DynamoDB index for fast queries (adds cost)
+
+  PresignedUrlExpiry:
+    Type: Number
+    Default: 900
+    MinValue: 300
+    MaxValue: 3600
+    Description: Presigned URL expiry time in seconds (5-60 minutes)
+
+Conditions:
+  IsProduction: !Equals [!Ref Environment, prod]
+  UseDynamoDB: !Equals [!Ref EnableDynamoDB, 'true']
+
+Resources:
+  # ============================================================================
+  # S3 STORAGE
+  # ============================================================================
+
+  # Main S3 bucket for job application data
+  JobTrackerBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Ref BucketName
+      VersioningConfiguration:
+        Status: Enabled  # Keep version history of meta.json updates
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      LifecycleConfiguration:
+        Rules:
+          # Move old application files to cheaper storage
+          - Id: MoveOldApplicationsToIA
+            Status: Enabled
+            Prefix: applications/
+            Transitions:
+              - StorageClass: INTELLIGENT_TIERING
+                TransitionInDays: 30
+              - StorageClass: GLACIER_IR
+                TransitionInDays: 180
+            NoncurrentVersionTransitions:
+              - StorageClass: STANDARD_IA
+                TransitionInDays: 30
+              - StorageClass: GLACIER
+                TransitionInDays: 90
+            NoncurrentVersionExpirationInDays: 365
+
+          # Delete temporary upload files after 7 days
+          - Id: ExpireTmpUploads
+            Status: Enabled
+            Prefix: uploads/tmp/
+            ExpirationInDays: 7
+            AbortIncompleteMultipartUpload:
+              DaysAfterInitiation: 1
+
+      CorsConfiguration:
+        CorsRules:
+          - AllowedHeaders:
+              - '*'
+            AllowedMethods:
+              - GET
+              - PUT
+              - POST
+              - HEAD
+            AllowedOrigins:
+              - 'https://cv.vgnshlv.nz'
+              - 'https://d1cda43lowke66.cloudfront.net'
+              - 'http://localhost:*'  # For local development
+            ExposeHeaders:
+              - ETag
+            MaxAge: 3600
+
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
+      Tags:
+        - Key: Project
+          Value: JobTracker
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: ManagedBy
+          Value: SAM
+        - Key: CostCenter
+          Value: Personal
+        - Key: DataClassification
+          Value: Sensitive
+
+  # ============================================================================
+  # DYNAMODB INDEX (OPTIONAL)
+  # ============================================================================
+
+  # DynamoDB table for fast querying (optional)
+  ApplicationsTable:
+    Type: AWS::DynamoDB::Table
+    Condition: UseDynamoDB
+    Properties:
+      TableName: !Sub '${BucketName}-index'
+      BillingMode: PAY_PER_REQUEST  # On-demand pricing (free tier: 25 WCU, 25 RCU)
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: !If [IsProduction, true, false]
+
+      AttributeDefinitions:
+        - AttributeName: pk
+          AttributeType: S
+        - AttributeName: sk
+          AttributeType: S
+        - AttributeName: gsi1pk
+          AttributeType: S
+        - AttributeName: gsi1sk
+          AttributeType: S
+
+      KeySchema:
+        - AttributeName: pk
+          KeyType: HASH
+        - AttributeName: sk
+          KeyType: RANGE
+
+      GlobalSecondaryIndexes:
+        # Query by status and date
+        - IndexName: GSI1
+          KeySchema:
+            - AttributeName: gsi1pk
+              KeyType: HASH
+            - AttributeName: gsi1sk
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+
+      StreamSpecification:
+        StreamViewType: NEW_AND_OLD_IMAGES
+
+      Tags:
+        - Key: Project
+          Value: JobTracker
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: ManagedBy
+          Value: SAM
+
+  # ============================================================================
+  # LAMBDA FUNCTION
+  # ============================================================================
+
+  # Main Lambda function for CRUD operations
+  JobTrackerFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub '${BucketName}-api'
+      CodeUri: ./src/
+      Handler: app.lambda_handler
+      Description: Job tracker API for CRUD operations with S3 storage
+      Environment:
+        Variables:
+          BUCKET_NAME: !Ref JobTrackerBucket
+          DYNAMODB_TABLE: !If [UseDynamoDB, !Ref ApplicationsTable, '']
+          USE_DYNAMODB: !Ref EnableDynamoDB
+          PRESIGNED_URL_EXPIRY: !Ref PresignedUrlExpiry
+          REGION: !Ref AWS::Region
+      Policies:
+        - S3CrudPolicy:
+            BucketName: !Ref JobTrackerBucket
+        - Statement:
+            - Effect: Allow
+              Action:
+                - s3:GetObject
+                - s3:PutObject
+                - s3:DeleteObject
+                - s3:ListBucket
+                - s3:GetObjectVersion
+                - s3:PutObjectAcl
+              Resource:
+                - !GetAtt JobTrackerBucket.Arn
+                - !Sub '${JobTrackerBucket.Arn}/*'
+        - !If
+          - UseDynamoDB
+          - DynamoDBCrudPolicy:
+              TableName: !Ref ApplicationsTable
+          - !Ref AWS::NoValue
+      Events:
+        # POST /applications - Create new application
+        CreateApplication:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref JobTrackerApi
+            Path: /applications
+            Method: POST
+
+        # GET /applications - List all applications
+        ListApplications:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref JobTrackerApi
+            Path: /applications
+            Method: GET
+
+        # GET /applications/{id} - Get single application
+        GetApplication:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref JobTrackerApi
+            Path: /applications/{id}
+            Method: GET
+
+        # PUT /applications/{id} - Update application
+        UpdateApplication:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref JobTrackerApi
+            Path: /applications/{id}
+            Method: PUT
+
+        # DELETE /applications/{id} - Delete application
+        DeleteApplication:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref JobTrackerApi
+            Path: /applications/{id}
+            Method: DELETE
+
+        # POST /applications/{id}/cv-upload-url - Get presigned upload URL
+        GetUploadUrl:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref JobTrackerApi
+            Path: /applications/{id}/cv-upload-url
+            Method: POST
+
+  # CloudWatch Logs retention
+  FunctionLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${JobTrackerFunction}'
+      RetentionInDays: !If [IsProduction, 14, 7]
+
+  # ============================================================================
+  # API GATEWAY
+  # ============================================================================
+
+  # HTTP API (cheaper than REST API)
+  JobTrackerApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      StageName: !Ref Environment
+      Description: !Sub 'Job Tracker API - ${Environment}'
+      CorsConfiguration:
+        AllowOrigins:
+          - 'https://cv.vgnshlv.nz'
+          - 'https://d1cda43lowke66.cloudfront.net'
+          - 'http://localhost:*'
+        AllowHeaders:
+          - 'content-type'
+          - 'authorization'
+          - 'x-api-key'
+        AllowMethods:
+          - GET
+          - POST
+          - PUT
+          - DELETE
+          - OPTIONS
+        MaxAge: 3600
+        AllowCredentials: false
+
+      # Optional: Add throttling to prevent abuse
+      DefaultRouteSettings:
+        ThrottlingBurstLimit: 100
+        ThrottlingRateLimit: 50
+
+      Tags:
+        Project: JobTracker
+        Environment: !Ref Environment
+        ManagedBy: SAM
+
+  # ============================================================================
+  # CLOUDWATCH ALARMS (PRODUCTION ONLY)
+  # ============================================================================
+
+  # Alarm for Lambda errors
+  LambdaErrorAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: IsProduction
+    Properties:
+      AlarmName: !Sub '${JobTrackerFunction}-Errors'
+      AlarmDescription: Alert when Lambda function has errors
+      MetricName: Errors
+      Namespace: AWS/Lambda
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 5
+      ComparisonOperator: GreaterThanThreshold
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref JobTrackerFunction
+      TreatMissingData: notBreaching
+
+  # Alarm for API Gateway 5xx errors
+  ApiGateway5xxAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: IsProduction
+    Properties:
+      AlarmName: !Sub '${BucketName}-API-5xx-Errors'
+      AlarmDescription: Alert when API Gateway has 5xx errors
+      MetricName: 5XXError
+      Namespace: AWS/ApiGateway
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 10
+      ComparisonOperator: GreaterThanThreshold
+      Dimensions:
+        - Name: ApiName
+          Value: !Ref JobTrackerApi
+      TreatMissingData: notBreaching
+
+  # ============================================================================
+  # COST BUDGETS
+  # ============================================================================
+  # Note: AWS::Budgets::Budget not available in ap-southeast-5 region
+  # Use AWS Budgets console directly or create budgets in us-east-1
+
+  # # Monthly cost budget (Production only)
+  # MonthlyBudget:
+  #   Type: AWS::Budgets::Budget
+  #   Condition: IsProduction
+  #   Properties:
+  #     Budget:
+  #       BudgetName: !Sub '${BucketName}-monthly-budget'
+  #       BudgetType: COST
+  #       TimeUnit: MONTHLY
+  #       BudgetLimit:
+  #         Amount: 5  # MYR 5 per month (~$1.20 USD)
+  #         Unit: USD
+  #       CostFilters:
+  #         TagKeyValue:
+  #           - !Sub 'user:Project$JobTracker'
+  #     NotificationsWithSubscribers:
+  #       - Notification:
+  #           NotificationType: ACTUAL
+  #           ComparisonOperator: GREATER_THAN
+  #           Threshold: 80
+  #           ThresholdType: PERCENTAGE
+  #         Subscribers: []  # Add email subscribers manually in console
+
+Outputs:
+  # API Endpoint
+  ApiEndpoint:
+    Description: HTTP API Gateway endpoint URL
+    Value: !Sub 'https://${JobTrackerApi}.execute-api.${AWS::Region}.amazonaws.com/${Environment}'
+    Export:
+      Name: !Sub '${AWS::StackName}-ApiEndpoint'
+
+  # S3 Bucket
+  BucketName:
+    Description: S3 bucket name for job applications
+    Value: !Ref JobTrackerBucket
+    Export:
+      Name: !Sub '${AWS::StackName}-BucketName'
+
+  # Lambda Function
+  FunctionArn:
+    Description: Lambda function ARN
+    Value: !GetAtt JobTrackerFunction.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-FunctionArn'
+
+  FunctionName:
+    Description: Lambda function name
+    Value: !Ref JobTrackerFunction
+    Export:
+      Name: !Sub '${AWS::StackName}-FunctionName'
+
+  # DynamoDB Table (if enabled)
+  DynamoDBTableName:
+    Condition: UseDynamoDB
+    Description: DynamoDB table name for application index
+    Value: !Ref ApplicationsTable
+    Export:
+      Name: !Sub '${AWS::StackName}-TableName'
+
+  # API Documentation
+  ApiDocumentation:
+    Description: API endpoint examples
+    Value: !Sub |
+      API Base URL: https://${JobTrackerApi}.execute-api.${AWS::Region}.amazonaws.com/${Environment}
+
+      Endpoints:
+      - POST   /applications           Create new application
+      - GET    /applications           List all applications
+      - GET    /applications/{id}      Get application details
+      - PUT    /applications/{id}      Update application
+      - DELETE /applications/{id}      Delete application
+      - POST   /applications/{id}/cv-upload-url  Get presigned CV upload URL
+
+  # Deployment commands
+  UpdateFunctionCommand:
+    Description: Command to update Lambda function code
+    Value: !Sub 'sam build && sam deploy --stack-name ${AWS::StackName} --no-confirm-changeset'
+
+  TestApiCommand:
+    Description: Command to test API endpoint
+    Value: !Sub 'curl https://${JobTrackerApi}.execute-api.${AWS::Region}.amazonaws.com/${Environment}/applications'
+
+  ViewLogsCommand:
+    Description: Command to view Lambda logs
+    Value: !Sub 'sam logs --stack-name ${AWS::StackName} --tail'
+
+  # Cost estimates
+  EstimatedMonthlyCost:
+    Description: Estimated monthly cost (free tier eligible)
+    Value: |
+      Free Tier (First 12 months):
+      - Lambda: 1M requests/month free + 400,000 GB-seconds
+      - API Gateway: 1M API calls/month free
+      - S3: 5GB storage + 20,000 GET + 2,000 PUT requests
+      - DynamoDB: 25GB storage + 25 WCU + 25 RCU (if enabled)
+
+      Expected cost: $0-2 USD/month (~MYR 0-10)
