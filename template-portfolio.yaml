@@ -121,6 +121,82 @@ Resources:
         SigningProtocol: sigv4
         Description: Origin Access Control for portfolio S3 bucket
 
+  # CloudFront Response Headers Policy (Security Headers)
+  SecurityHeadersPolicy:
+    Type: AWS::CloudFront::ResponseHeadersPolicy
+    Properties:
+      ResponseHeadersPolicyConfig:
+        Name: !Sub '${BucketName}-security-headers'
+        Comment: Security headers for portfolio site (CSP, HSTS, X-Frame-Options)
+
+        # Security Headers
+        SecurityHeadersConfig:
+          # Content Security Policy - strict policy for static site
+          ContentSecurityPolicy:
+            ContentSecurityPolicy: >-
+              default-src 'self';
+              script-src 'self' 'unsafe-inline' https://sdk.amazonaws.com https://cognito-identity.us-east-1.amazonaws.com;
+              style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;
+              font-src 'self' https://fonts.gstatic.com data:;
+              img-src 'self' data: https:;
+              connect-src 'self' https://*.execute-api.ap-southeast-5.amazonaws.com https://cognito-idp.ap-southeast-5.amazonaws.com;
+              frame-ancestors 'none';
+              base-uri 'self';
+              form-action 'self'
+            Override: true
+
+          # Strict Transport Security - force HTTPS for 1 year
+          StrictTransportSecurity:
+            AccessControlMaxAgeSec: 31536000
+            IncludeSubdomains: true
+            Preload: true
+            Override: true
+
+          # Prevent clickjacking
+          FrameOptions:
+            FrameOption: DENY
+            Override: true
+
+          # Prevent MIME-type sniffing
+          ContentTypeOptions:
+            Override: true
+
+          # XSS Protection (legacy but still useful)
+          XSSProtection:
+            ModeBlock: true
+            Protection: true
+            Override: true
+
+          # Referrer Policy
+          ReferrerPolicy:
+            ReferrerPolicy: strict-origin-when-cross-origin
+            Override: true
+
+        # CORS Headers (preserve existing CORS functionality)
+        CorsConfig:
+          AccessControlAllowOrigins:
+            Items:
+              - 'https://cv.vgnshlv.nz'
+              - 'https://d1cda43lowke66.cloudfront.net'
+          AccessControlAllowHeaders:
+            Items:
+              - '*'
+          AccessControlAllowMethods:
+            Items:
+              - GET
+              - HEAD
+              - OPTIONS
+          AccessControlAllowCredentials: false
+          AccessControlMaxAgeSec: 3600
+          OriginOverride: true
+
+        # Custom Headers
+        CustomHeadersConfig:
+          Items:
+            - Header: Permissions-Policy
+              Value: 'geolocation=(), microphone=(), camera=(), payment=()'
+              Override: true
+
   # CloudFront Distribution
   CloudFrontDistribution:
     Type: AWS::CloudFront::Distribution
@@ -167,7 +243,7 @@ Resources:
             - OPTIONS
           Compress: true
           CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6  # CachingOptimized
-          ResponseHeadersPolicyId: 5cc3b908-e619-4b99-88e5-2cf7f45965bd  # SimpleCORS
+          ResponseHeadersPolicyId: !Ref SecurityHeadersPolicy  # Custom security headers
 
         # Custom error responses
         CustomErrorResponses:

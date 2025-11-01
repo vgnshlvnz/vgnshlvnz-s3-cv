@@ -110,19 +110,24 @@ Resources:
 
       CorsConfiguration:
         CorsRules:
+          # Production CORS - tightened security
           - AllowedHeaders:
-              - '*'
+              - Content-Type
+              - Content-Length
+              - Content-MD5
+              - x-amz-date
+              - Authorization
+              - x-amz-security-token
             AllowedMethods:
               - GET
               - PUT
-              - POST
-              - HEAD
             AllowedOrigins:
               - 'https://cv.vgnshlv.nz'
               - 'https://d1cda43lowke66.cloudfront.net'
-              - 'http://localhost:*'  # For local development
             ExposeHeaders:
               - ETag
+              - x-amz-server-side-encryption
+              - x-amz-request-id
             MaxAge: 3600
 
       PublicAccessBlockConfiguration:
@@ -130,6 +135,39 @@ Resources:
         BlockPublicPolicy: true
         IgnorePublicAcls: true
         RestrictPublicBuckets: true
+
+      NotificationConfiguration:
+        LambdaConfigurations:
+          # Trigger file validation on CV uploads
+          - Event: s3:ObjectCreated:*
+            Function: !GetAtt FileValidatorFunction.Arn
+            Filter:
+              S3Key:
+                Rules:
+                  - Name: prefix
+                    Value: applications/
+                  - Name: suffix
+                    Value: .pdf
+          # Validate DOCX uploads
+          - Event: s3:ObjectCreated:*
+            Function: !GetAtt FileValidatorFunction.Arn
+            Filter:
+              S3Key:
+                Rules:
+                  - Name: prefix
+                    Value: applications/
+                  - Name: suffix
+                    Value: .docx
+          # Validate DOC uploads
+          - Event: s3:ObjectCreated:*
+            Function: !GetAtt FileValidatorFunction.Arn
+            Filter:
+              S3Key:
+                Rules:
+                  - Name: prefix
+                    Value: applications/
+                  - Name: suffix
+                    Value: .doc
 
       Tags:
         - Key: Project
@@ -237,13 +275,15 @@ Resources:
               TableName: !Ref ApplicationsTable
           - !Ref AWS::NoValue
       Events:
-        # POST /applications - Create new application
+        # POST /applications - Create new application (PUBLIC - no auth required)
         CreateApplication:
           Type: HttpApi
           Properties:
             ApiId: !Ref JobTrackerApi
             Path: /applications
             Method: POST
+            Auth:
+              Authorizer: NONE  # Override default - public endpoint
 
         # GET /applications - List all applications
         ListApplications:
@@ -292,6 +332,45 @@ Resources:
       LogGroupName: !Sub '/aws/lambda/${JobTrackerFunction}'
       RetentionInDays: !If [IsProduction, 14, 7]
 
+  # File Validator Lambda Function
+  FileValidatorFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub '${BucketName}-file-validator'
+      CodeUri: ./src/
+      Handler: file_validator.lambda_handler
+      Description: Validates uploaded files for security (magic bytes, malware patterns)
+      Environment:
+        Variables:
+          BUCKET_NAME: !Ref JobTrackerBucket
+          LOG_LEVEL: INFO
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action:
+                - s3:GetObject
+                - s3:DeleteObject
+                - s3:GetObjectTagging
+                - s3:PutObjectTagging
+              Resource:
+                - !Sub '${JobTrackerBucket.Arn}/*'
+
+  # CloudWatch Logs for File Validator
+  FileValidatorLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${FileValidatorFunction}'
+      RetentionInDays: !If [IsProduction, 14, 7]
+
+  # Lambda permission for S3 to invoke File Validator
+  FileValidatorInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref FileValidatorFunction
+      Action: lambda:InvokeFunction
+      Principal: s3.amazonaws.com
+      SourceArn: !GetAtt JobTrackerBucket.Arn
+
   # ============================================================================
   # API GATEWAY
   # ============================================================================
@@ -302,6 +381,20 @@ Resources:
     Properties:
       StageName: !Ref Environment
       Description: !Sub 'Job Tracker API - ${Environment}'
+
+      # JWT Authorization with Cognito
+      Auth:
+        Authorizers:
+          CognitoAuthorizer:
+            JwtConfiguration:
+              issuer: !Sub
+                - 'https://cognito-idp.${AWS::Region}.amazonaws.com/${UserPoolId}'
+                - UserPoolId: !ImportValue recruiter-portal-cognito-UserPoolId
+              audience:
+                - !ImportValue recruiter-portal-cognito-UserPoolClientId
+            IdentitySource: $request.header.Authorization
+        DefaultAuthorizer: CognitoAuthorizer
+
       CorsConfiguration:
         AllowOrigins:
           - 'https://cv.vgnshlv.nz'
