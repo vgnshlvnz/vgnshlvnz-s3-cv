@@ -214,6 +214,8 @@ Resources:
           USE_DYNAMODB: !Ref EnableDynamoDB
           PRESIGNED_URL_EXPIRY: !Ref PresignedUrlExpiry
           REGION: !Ref AWS::Region
+          USER_POOL_ID: !ImportValue recruiter-portal-cognito-UserPoolId
+          CLIENT_ID: !ImportValue recruiter-portal-cognito-UserPoolClientId
       Policies:
         - S3CrudPolicy:
             BucketName: !Ref JobTrackerBucket

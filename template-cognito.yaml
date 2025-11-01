@@ -37,14 +37,18 @@ Resources:
         - Name: name
           Required: true
           Mutable: true
+        - Name: custom:role
+          AttributeDataType: String
+          Mutable: true
+          Required: false
       Policies:
         PasswordPolicy:
-          MinimumLength: 8
+          MinimumLength: 12
           RequireUppercase: true
           RequireLowercase: true
           RequireNumbers: true
-          RequireSymbols: false
-          TemporaryPasswordValidityDays: 7
+          RequireSymbols: true
+          TemporaryPasswordValidityDays: 3
       AdminCreateUserConfig:
         AllowAdminCreateUserOnly: true
         InviteMessageTemplate:

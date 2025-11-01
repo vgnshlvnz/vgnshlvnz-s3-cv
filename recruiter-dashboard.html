@@ -383,16 +383,7 @@
             const password = document.getElementById('loginPassword').value;
 
             try {
-                // For demo: Simple client-side auth (REPLACE WITH COGNITO IN PRODUCTION)
-                if (email === 'admin@example.com' && password === 'TempPassword123') {
-                    currentUser = { email };
-                    idToken = 'demo-token'; // In production, this would be the Cognito ID token
-                    showDashboard();
-                } else {
-                    throw new Error('Invalid credentials');
-                }
-
-                /* Uncomment for actual Cognito authentication:
+                // Real Cognito authentication
                 const params = {
                     AuthFlow: 'USER_PASSWORD_AUTH',
                     ClientId: COGNITO_CONFIG.clientId,
@@ -406,7 +397,6 @@
                 idToken = authResult.AuthenticationResult.IdToken;
                 currentUser = { email };
                 showDashboard();
-                */
             } catch (error) {
                 console.error('Login error:', error);
                 document.getElementById('loginError').textContent = error.message || 'Invalid credentials';
@@ -455,7 +445,7 @@
             }
         }
 
-        // Render Submissions Table
+        // Render Submissions Table (with XSS protection)
         function renderSubmissions() {
             const tbody = document.getElementById('submissionsTableBody');
 
@@ -467,9 +457,9 @@
             tbody.innerHTML = submissions.map(sub => `
                 <tr onclick="viewSubmission('${sub.submission_id}')">
                     <td>${new Date(sub.created_at).toLocaleDateString()}</td>
-                    <td>${sub.recruiter_name || 'N/A'}</td>
-                    <td>${sub.company || 'N/A'}</td>
-                    <td>${sub.job_title || 'N/A'}</td>
+                    <td>${escapeHtml(sub.recruiter_name)}</td>
+                    <td>${escapeHtml(sub.company)}</td>
+                    <td>${escapeHtml(sub.job_title)}</td>
                     <td>${sub.salary_max ? sub.salary_max.toLocaleString() : 'N/A'}</td>
                     <td><span class="status-badge status-${sub.status}">${sub.status.toUpperCase().replace('_', ' ')}</span></td>
                 </tr>
@@ -501,26 +491,38 @@
             }
         }
 
+        // HTML Escaping to prevent XSS
+        function escapeHtml(unsafe) {
+            if (!unsafe) return 'N/A';
+            return unsafe
+                .toString()
+                .replace(/&/g, "&amp;")
+                .replace(/</g, "&lt;")
+                .replace(/>/g, "&gt;")
+                .replace(/"/g, "&quot;")
+                .replace(/'/g, "&#039;");
+        }
+
         // Show Detail Modal
         function showDetailModal(sub) {
             document.getElementById('modalTitle').textContent = `Submission: ${sub.submission_id}`;
             document.getElementById('modalBody').innerHTML = `
                 <div class="detail-section">
                     <h3>Recruiter Information</h3>
-                    <div class="detail-row"><span class="detail-label">Name:</span> ${sub.recruiter.name}</div>
-                    <div class="detail-row"><span class="detail-label">Email:</span> <a href="mailto:${sub.recruiter.email}">${sub.recruiter.email}</a></div>
-                    <div class="detail-row"><span class="detail-label">Phone:</span> <a href="tel:${sub.recruiter.phone}">${sub.recruiter.phone}</a></div>
-                    <div class="detail-row"><span class="detail-label">Agency:</span> ${sub.recruiter.agency || 'N/A'}</div>
+                    <div class="detail-row"><span class="detail-label">Name:</span> ${escapeHtml(sub.recruiter.name)}</div>
+                    <div class="detail-row"><span class="detail-label">Email:</span> <a href="mailto:${escapeHtml(sub.recruiter.email)}">${escapeHtml(sub.recruiter.email)}</a></div>
+                    <div class="detail-row"><span class="detail-label">Phone:</span> <a href="tel:${escapeHtml(sub.recruiter.phone)}">${escapeHtml(sub.recruiter.phone)}</a></div>
+                    <div class="detail-row"><span class="detail-label">Agency:</span> ${escapeHtml(sub.recruiter.agency)}</div>
                 </div>
 
                 <div class="detail-section">
                     <h3>Job Details</h3>
-                    <div class="detail-row"><span class="detail-label">Title:</span> ${sub.job.title}</div>
-                    <div class="detail-row"><span class="detail-label">Company:</span> ${sub.job.company}</div>
-                    <div class="detail-row"><span class="detail-label">Salary Range:</span> ${sub.job.currency} ${sub.job.salary_min?.toLocaleString() || 0} - ${sub.job.salary_max?.toLocaleString() || 0}</div>
-                    <div class="detail-row"><span class="detail-label">Requirements:</span> ${sub.job.requirements}</div>
-                    <div class="detail-row"><span class="detail-label">Skills:</span> ${sub.job.skills.join(', ')}</div>
-                    ${sub.job.description ? `<div class="detail-row"><span class="detail-label">Description:</span><br>${sub.job.description}</div>` : ''}
+                    <div class="detail-row"><span class="detail-label">Title:</span> ${escapeHtml(sub.job.title)}</div>
+                    <div class="detail-row"><span class="detail-label">Company:</span> ${escapeHtml(sub.job.company)}</div>
+                    <div class="detail-row"><span class="detail-label">Salary Range:</span> ${escapeHtml(sub.job.currency)} ${sub.job.salary_min?.toLocaleString() || 0} - ${sub.job.salary_max?.toLocaleString() || 0}</div>
+                    <div class="detail-row"><span class="detail-label">Requirements:</span> ${escapeHtml(sub.job.requirements)}</div>
+                    <div class="detail-row"><span class="detail-label">Skills:</span> ${sub.job.skills.map(escapeHtml).join(', ')}</div>
+                    ${sub.job.description ? `<div class="detail-row"><span class="detail-label">Description:</span><br>${escapeHtml(sub.job.description)}</div>` : ''}
                 </div>
 
                 <div class="detail-section">

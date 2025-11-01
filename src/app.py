@@ -7,11 +7,17 @@ import json
 import os
 import uuid
 import logging
+import re
+import time
 from datetime import datetime, date
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Tuple
+from html import escape
 import boto3
 from botocore.exceptions import ClientError
 from botocore.config import Config
+import jwt
+from jwt import PyJWKClient
+from collections import defaultdict
 
 # Configure logging
 logger = logging.getLogger()
@@ -21,6 +27,21 @@ logger.setLevel(os.environ.get('LOG_LEVEL', 'INFO'))
 BUCKET_NAME = os.environ.get('BUCKET_NAME', 'vgnshlvnz-job-tracker')
 PRESIGNED_URL_EXPIRY = int(os.environ.get('PRESIGNED_URL_EXPIRY', '900'))
 REGION = os.environ.get('REGION', 'ap-southeast-5')
+
+# Cognito configuration for JWT validation
+USER_POOL_ID = os.environ.get('USER_POOL_ID', 'ap-southeast-5_0QQg8Wd6r')
+CLIENT_ID = os.environ.get('CLIENT_ID', '4f8f3qon7v6tegud4qe854epo6')
+COGNITO_ISSUER = f'https://cognito-idp.{REGION}.amazonaws.com/{USER_POOL_ID}'
+
+# Presigned URL expiry times (in seconds)
+DOWNLOAD_URL_EXPIRY = 300  # 5 minutes
+UPLOAD_URL_EXPIRY = 600    # 10 minutes
+
+# Allowed origins for CORS
+ALLOWED_ORIGINS = [
+    'https://cv.vgnshlv.nz',
+    'https://d1cda43lowke66.cloudfront.net'
+]
 
 # AWS clients
 s3 = boto3.client(
@@ -88,13 +109,212 @@ def _generate_rec_id() -> str:
     return f"rec_{today}_{unique_id}"
 
 
-def _response(status_code: int, body: Dict[str, Any], headers: Optional[Dict] = None) -> Dict:
-    """Build API Gateway response"""
+# ========== SECURITY FUNCTIONS ==========
+
+# In-memory rate limiter (use DynamoDB for production with multiple Lambda instances)
+rate_limit_store = defaultdict(list)
+
+def validate_token(event: Dict) -> Optional[Dict]:
+    """
+    Validate Cognito JWT token from Authorization header
+    Returns decoded token payload if valid, raises exception otherwise
+    """
+    try:
+        # Get Authorization header
+        headers = event.get('headers', {})
+        auth_header = headers.get('authorization') or headers.get('Authorization', '')
+
+        if not auth_header:
+            raise ValueError("Missing Authorization header")
+
+        if not auth_header.startswith('Bearer '):
+            raise ValueError("Invalid Authorization header format. Expected 'Bearer <token>'")
+
+        token = auth_header.split(' ')[1]
+
+        # Get Cognito public keys
+        jwks_url = f"{COGNITO_ISSUER}/.well-known/jwks.json"
+        jwks_client = PyJWKClient(jwks_url, cache_keys=True)
+
+        # Get signing key from token
+        signing_key = jwks_client.get_signing_key_from_jwt(token)
+
+        # Decode and validate token
+        decoded = jwt.decode(
+            token,
+            signing_key.key,
+            algorithms=["RS256"],
+            audience=CLIENT_ID,
+            issuer=COGNITO_ISSUER,
+            options={"verify_exp": True}
+        )
+
+        logger.info(f"Token validated for user: {decoded.get('email', decoded.get('sub'))}")
+        return decoded
+
+    except jwt.ExpiredSignatureError:
+        raise ValueError("Token has expired")
+    except jwt.InvalidAudienceError:
+        raise ValueError("Invalid token audience")
+    except jwt.InvalidIssuerError:
+        raise ValueError("Invalid token issuer")
+    except jwt.DecodeError:
+        raise ValueError("Invalid token format")
+    except Exception as e:
+        logger.error(f"Token validation error: {str(e)}")
+        raise ValueError(f"Token validation failed: {str(e)}")
+
+
+def is_admin(user: Dict) -> bool:
+    """Check if user has admin role"""
+    # Check custom:role attribute from Cognito
+    role = user.get('custom:role', '').lower()
+    return role == 'admin'
+
+
+def check_rate_limit(ip: str, limit: int = 5, window: int = 300) -> Tuple[bool, str]:
+    """
+    Check if IP exceeds rate limit
+    limit: max requests per window
+    window: time window in seconds (default: 5 minutes)
+    """
+    now = time.time()
+    cutoff = now - window
+
+    # Clean old requests
+    rate_limit_store[ip] = [t for t in rate_limit_store[ip] if t > cutoff]
+
+    # Check limit
+    if len(rate_limit_store[ip]) >= limit:
+        retry_after = int(cutoff + window - now)
+        return False, f"Rate limit exceeded. Try again in {retry_after} seconds"
+
+    # Add current request
+    rate_limit_store[ip].append(now)
+    return True, ""
+
+
+def sanitize_event_for_logging(event: Dict) -> Dict:
+    """Remove sensitive data from event before logging"""
+    safe_event = event.copy()
+
+    # Remove headers with sensitive data
+    if 'headers' in safe_event:
+        safe_headers = {}
+        for key, value in safe_event['headers'].items():
+            if key.lower() in ['authorization', 'cookie', 'x-api-key']:
+                safe_headers[key] = '***REDACTED***'
+            else:
+                safe_headers[key] = value
+        safe_event['headers'] = safe_headers
+
+    # Redact PII from body
+    if 'body' in safe_event and safe_event['body']:
+        try:
+            body = json.loads(safe_event['body'])
+            if 'recruiter' in body:
+                if 'email' in body['recruiter']:
+                    body['recruiter']['email'] = '***@***.***'
+                if 'phone' in body['recruiter']:
+                    body['recruiter']['phone'] = '+**-**-***'
+            safe_event['body'] = json.dumps(body)
+        except:
+            safe_event['body'] = '***REDACTED***'
+
+    return safe_event
+
+
+def sanitize_submission_for_recruiter(meta: Dict) -> Dict:
+    """Remove sensitive admin fields for non-admin users"""
+    safe_fields = {
+        'submission_id', 'created_at', 'updated_at', 'status',
+        'recruiter', 'job', 'files', 'type'
+    }
+    return {k: v for k, v in meta.items() if k in safe_fields}
+
+
+# ========== INPUT VALIDATION FUNCTIONS ==========
+
+def validate_email(email: str) -> Tuple[bool, str]:
+    """Validate email format"""
+    if not email or len(email) > 254:
+        return False, "Invalid email length"
+
+    pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+    if not re.match(pattern, email):
+        return False, "Invalid email format"
+
+    return True, ""
+
+
+def validate_phone(phone: str) -> Tuple[bool, str]:
+    """Validate phone number"""
+    if not phone or len(phone) > 20:
+        return False, "Invalid phone length"
+
+    # Allow only digits, +, -, (, ), spaces
+    pattern = r'^[\d\s\+\-\(\)]+$'
+    if not re.match(pattern, phone):
+        return False, "Invalid phone format"
+
+    return True, ""
+
+
+def validate_string(value: str, max_length: int, field_name: str, required: bool = True) -> Tuple[bool, str]:
+    """Validate string field"""
+    if not value:
+        if required:
+            return False, f"{field_name} is required"
+        return True, ""
+
+    if len(value) > max_length:
+        return False, f"{field_name} exceeds {max_length} characters"
+
+    # Check for null bytes and control characters
+    if '\x00' in value or any(ord(c) < 32 and c not in '\t\n\r' for c in value):
+        return False, f"{field_name} contains invalid characters"
+
+    return True, ""
+
+
+def validate_id_format(id_value: str, prefix: str) -> bool:
+    """Validate ID format to prevent path traversal"""
+    pattern = f'^{prefix}_\\d{{4}}-\\d{{2}}-\\d{{2}}_[a-f0-9]{{8}}$'
+    return bool(re.match(pattern, id_value))
+
+
+def validate_status(status: str) -> Tuple[bool, str]:
+    """Validate status value"""
+    valid_statuses = ['new', 'contacted', 'cv_sent', 'closed']
+    if status not in valid_statuses:
+        return False, f"Invalid status. Must be one of: {', '.join(valid_statuses)}"
+    return True, ""
+
+
+def sanitize_for_display(value: str) -> str:
+    """Sanitize string for HTML display"""
+    return escape(value)
+
+
+def _response(status_code: int, body: Dict[str, Any], headers: Optional[Dict] = None, event: Optional[Dict] = None) -> Dict:
+    """Build API Gateway response with secure CORS"""
+    # Get origin from request
+    origin = ''
+    if event:
+        request_headers = event.get('headers', {})
+        origin = request_headers.get('origin') or request_headers.get('Origin', '')
+
+    # Check if origin is allowed
+    allowed_origin = ALLOWED_ORIGINS[0]  # Default to first allowed origin
+    if origin in ALLOWED_ORIGINS:
+        allowed_origin = origin
+
     default_headers = {
         'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Origin': allowed_origin,
         'Access-Control-Allow-Headers': 'Content-Type,Authorization',
-        'Access-Control-Allow-Methods': 'GET,POST,PUT,DELETE,OPTIONS'
+        'Access-Control-Allow-Methods': 'GET,POST,PUT,DELETE,OPTIONS',
+        'Access-Control-Allow-Credentials': 'false'
     }
     if headers:
         default_headers.update(headers)
@@ -106,13 +326,13 @@ def _response(status_code: int, body: Dict[str, Any], headers: Optional[Dict] = 
     }
 
 
-def _error_response(status_code: int, message: str, error_type: str = 'Error') -> Dict:
+def _error_response(status_code: int, message: str, error_type: str = 'Error', event: Optional[Dict] = None) -> Dict:
     """Build error response"""
     logger.error(f"{error_type}: {message}")
     return _response(status_code, {
         'error': error_type,
         'message': message
-    })
+    }, event=event)
 
 
 def create_application(event: Dict) -> Dict:
@@ -542,16 +762,99 @@ def get_cv_upload_url(event: Dict) -> Dict:
 def create_recruiter_submission(event: Dict) -> Dict:
     """
     POST /recruiter-submissions
-    Create new recruiter submission
+    Create new recruiter submission with comprehensive input validation
     """
     try:
         body = json.loads(event.get('body') or '{}')
 
+        # ========== INPUT VALIDATION ==========
+        # Validate recruiter information
+        recruiter_name = body.get("recruiter", {}).get("name", "")
+        recruiter_email = body.get("recruiter", {}).get("email", "")
+        recruiter_phone = body.get("recruiter", {}).get("phone", "")
+        recruiter_agency = body.get("recruiter", {}).get("agency", "")
+
+        valid, error = validate_string(recruiter_name, 100, "Recruiter name")
+        if not valid:
+            return _error_response(400, error, "ValidationError", event=event)
+
+        valid, error = validate_email(recruiter_email)
+        if not valid:
+            return _error_response(400, error, "ValidationError", event=event)
+
+        valid, error = validate_phone(recruiter_phone)
+        if not valid:
+            return _error_response(400, error, "ValidationError", event=event)
+
+        valid, error = validate_string(recruiter_agency, 200, "Agency", required=False)
+        if not valid:
+            return _error_response(400, error, "ValidationError", event=event)
+
+        # Validate job information
+        job_title = body.get("job", {}).get("title", "")
+        job_company = body.get("job", {}).get("company", "")
+        job_requirements = body.get("job", {}).get("requirements", "")
+        job_description = body.get("job", {}).get("description", "")
+
+        valid, error = validate_string(job_title, 200, "Job title")
+        if not valid:
+            return _error_response(400, error, "ValidationError", event=event)
+
+        valid, error = validate_string(job_company, 200, "Company name")
+        if not valid:
+            return _error_response(400, error, "ValidationError", event=event)
+
+        valid, error = validate_string(job_requirements, 2000, "Requirements")
+        if not valid:
+            return _error_response(400, error, "ValidationError", event=event)
+
+        valid, error = validate_string(job_description, 5000, "Description", required=False)
+        if not valid:
+            return _error_response(400, error, "ValidationError", event=event)
+
+        # Validate salary
+        salary_min = body.get("job", {}).get("salary_min", 0)
+        salary_max = body.get("job", {}).get("salary_max", 0)
+
+        if not isinstance(salary_min, (int, float)) or salary_min < 0:
+            return _error_response(400, "salary_min must be a non-negative number", "ValidationError", event=event)
+
+        if not isinstance(salary_max, (int, float)) or salary_max < 0:
+            return _error_response(400, "salary_max must be a non-negative number", "ValidationError", event=event)
+
+        if salary_min > 0 and salary_max > 0 and salary_min > salary_max:
+            return _error_response(400, "salary_min cannot exceed salary_max", "ValidationError", event=event)
+
+        # Validate currency
+        valid_currencies = ['MYR', 'USD', 'SGD', 'EUR', 'GBP', 'AUD', 'NZD']
+        currency = body.get("job", {}).get("currency", "MYR")
+        if currency not in valid_currencies:
+            return _error_response(400, f"Invalid currency. Must be one of: {', '.join(valid_currencies)}", "ValidationError", event=event)
+
+        # Validate skills (array of strings)
+        skills = body.get("job", {}).get("skills", [])
+        if not isinstance(skills, list):
+            return _error_response(400, "skills must be an array", "ValidationError", event=event)
+
+        if len(skills) > 50:
+            return _error_response(400, "Maximum 50 skills allowed", "ValidationError", event=event)
+
+        validated_skills = []
+        for skill in skills:
+            if not isinstance(skill, str):
+                continue
+            skill = skill.strip()
+            if len(skill) > 100:
+                return _error_response(400, "Each skill must be max 100 characters", "ValidationError", event=event)
+            if skill:
+                validated_skills.append(skill)
+
+        # ========== CREATE SUBMISSION ==========
         # Generate submission ID
         rec_id = _generate_rec_id()
         prefix = _rec_prefix(rec_id)
 
-        # Build metadata
+        # Build metadata with validated data
         meta = {
             "submission_id": rec_id,
             "type": "recruiter_submission",
@@ -559,20 +862,20 @@ def create_recruiter_submission(event: Dict) -> Dict:
             "updated_at": _utc_now(),
             "status": "new",  # new, contacted, cv_sent, closed
             "recruiter": {
-                "name": body.get("recruiter", {}).get("name", ""),
-                "email": body.get("recruiter", {}).get("email", ""),
-                "phone": body.get("recruiter", {}).get("phone", ""),
-                "agency": body.get("recruiter", {}).get("agency", "")
+                "name": recruiter_name,
+                "email": recruiter_email,
+                "phone": recruiter_phone,
+                "agency": recruiter_agency
             },
             "job": {
-                "title": body.get("job", {}).get("title", ""),
-                "company": body.get("job", {}).get("company", ""),
-                "salary_min": body.get("job", {}).get("salary_min", 0),
-                "salary_max": body.get("job", {}).get("salary_max", 0),
-                "currency": body.get("job", {}).get("currency", "MYR"),
-                "requirements": body.get("job", {}).get("requirements", ""),
-                "skills": body.get("job", {}).get("skills", []),
-                "description": body.get("job", {}).get("description", "")
+                "title": job_title,
+                "company": job_company,
+                "salary_min": salary_min,
+                "salary_max": salary_max,
+                "currency": currency,
+                "requirements": job_requirements,
+                "skills": validated_skills,
+                "description": job_description
             },
             "files": {
                 "job_description": f"{prefix}jd.pdf",
@@ -594,7 +897,7 @@ def create_recruiter_submission(event: Dict) -> Dict:
             }
         )
 
-        # Generate presigned URL for JD upload
+        # Generate presigned URL for JD upload (10 min expiry)
         jd_upload_url = s3.generate_presigned_url(
             ClientMethod='put_object',
             Params={
@@ -602,7 +905,7 @@ def create_recruiter_submission(event: Dict) -> Dict:
                 "Key": meta["files"]["job_description"],
                 "ContentType": "application/pdf"
             },
-            ExpiresIn=PRESIGNED_URL_EXPIRY
+            ExpiresIn=UPLOAD_URL_EXPIRY
         )
 
         logger.info(f"Created recruiter submission: {rec_id}")
@@ -610,9 +913,9 @@ def create_recruiter_submission(event: Dict) -> Dict:
         return _response(200, {
             "submission_id": rec_id,
             "jd_upload_url": jd_upload_url,
-            "jd_upload_url_expires_in": PRESIGNED_URL_EXPIRY,
+            "jd_upload_url_expires_in": UPLOAD_URL_EXPIRY,
             "created_at": meta["created_at"]
-        })
+        }, event=event)
 
     except json.JSONDecodeError as e:
         return _error_response(400, f"Invalid JSON: {str(e)}", "InvalidJSON")
@@ -728,13 +1031,18 @@ def get_recruiter_submission(event: Dict) -> Dict:
     """
     GET /recruiter-submissions/{id}
     Get single recruiter submission with download URLs
+    Sanitizes admin-only data for non-admin users
     """
     try:
         path_params = event.get('pathParameters') or {}
         rec_id = path_params.get('id')
 
         if not rec_id:
-            return _error_response(400, "Missing submission ID", "InvalidRequest")
+            return _error_response(400, "Missing submission ID", "InvalidRequest", event=event)
+
+        # Validate ID format to prevent path traversal
+        if not validate_id_format(rec_id, 'rec'):
+            return _error_response(400, "Invalid submission ID format", "ValidationError", event=event)
 
         # Get metadata
         prefix = _rec_prefix(rec_id)
@@ -745,10 +1053,10 @@ def get_recruiter_submission(event: Dict) -> Dict:
             meta = json.loads(obj['Body'].read().decode('utf-8'))
         except ClientError as e:
             if e.response['Error']['Code'] == 'NoSuchKey':
-                return _error_response(404, f"Submission not found: {rec_id}", "NotFound")
+                return _error_response(404, f"Submission not found: {rec_id}", "NotFound", event=event)
             raise
 
-        # Generate presigned download URLs
+        # Generate presigned download URLs (5 min expiry)
         jd_key = meta.get("files", {}).get("job_description")
         cv_key = meta.get("files", {}).get("customized_cv")
 
@@ -761,7 +1069,7 @@ def get_recruiter_submission(event: Dict) -> Dict:
                 jd_download_url = s3.generate_presigned_url(
                     ClientMethod='get_object',
                     Params={"Bucket": BUCKET_NAME, "Key": jd_key},
-                    ExpiresIn=PRESIGNED_URL_EXPIRY
+                    ExpiresIn=DOWNLOAD_URL_EXPIRY
                 )
             except ClientError:
                 logger.warning(f"JD not found for {rec_id}: {jd_key}")
@@ -772,18 +1080,27 @@ def get_recruiter_submission(event: Dict) -> Dict:
                 cv_download_url = s3.generate_presigned_url(
                     ClientMethod='get_object',
                     Params={"Bucket": BUCKET_NAME, "Key": cv_key},
-                    ExpiresIn=PRESIGNED_URL_EXPIRY
+                    ExpiresIn=DOWNLOAD_URL_EXPIRY
                 )
             except ClientError:
                 logger.warning(f"Custom CV not found for {rec_id}: {cv_key}")
 
         meta["jd_download_url"] = jd_download_url
         meta["cv_download_url"] = cv_download_url
-        meta["download_url_expires_in"] = PRESIGNED_URL_EXPIRY
+        meta["download_url_expires_in"] = DOWNLOAD_URL_EXPIRY
 
-        logger.info(f"Retrieved recruiter submission: {rec_id}")
+        # Check if user is admin
+        user = event.get('user', {})
+        user_is_admin = is_admin(user)
 
-        return _response(200, meta)
+        # Sanitize response for non-admin users
+        if not user_is_admin:
+            meta = sanitize_submission_for_recruiter(meta)
+            logger.info(f"Retrieved recruiter submission (sanitized): {rec_id}")
+        else:
+            logger.info(f"Retrieved recruiter submission (full): {rec_id}")
+
+        return _response(200, meta, event=event)
 
     except ValueError as e:
         return _error_response(400, str(e), "InvalidRequest")
@@ -1001,15 +1318,16 @@ def upload_custom_cv(event: Dict) -> Dict:
 
 def lambda_handler(event: Dict, context: Any) -> Dict:
     """
-    Main Lambda handler
+    Main Lambda handler with authentication and security controls
     Routes requests to appropriate function
     """
-    logger.info(f"Event: {json.dumps(event)}")
+    # Sanitize event for logging (remove PII and tokens)
+    logger.info(f"Event: {json.dumps(sanitize_event_for_logging(event))}")
 
     # Handle OPTIONS preflight requests
     method = event.get('requestContext', {}).get('http', {}).get('method') or event.get('httpMethod')
     if method == 'OPTIONS':
-        return _response(200, {'message': 'OK'})
+        return _response(200, {'message': 'OK'}, event=event)
 
     # Get path and method
     path = event.get('requestContext', {}).get('http', {}).get('path') or event.get('path', '')
@@ -1022,7 +1340,62 @@ def lambda_handler(event: Dict, context: Any) -> Dict:
         if not path:
             path = '/'
 
-    logger.info(f"Request: {method} {path}")
+    # Get client IP for rate limiting
+    client_ip = event.get('requestContext', {}).get('http', {}).get('sourceIp', '')
+    logger.info(f"Request: {method} {path} from {client_ip}")
+
+    # Rate limiting for public submission endpoint
+    if method == 'POST' and path == '/recruiter-submissions':
+        allowed, error = check_rate_limit(client_ip, limit=5, window=300)  # 5 per 5 minutes
+        if not allowed:
+            return _error_response(429, error, "RateLimitExceeded", event=event)
+
+    # Authentication and Authorization
+    # Public endpoint: POST /recruiter-submissions (recruiter form submission)
+    # All other endpoints require authentication
+    user = None
+    requires_auth = not (method == 'POST' and path == '/recruiter-submissions')
+
+    if requires_auth:
+        try:
+            user = validate_token(event)
+            event['user'] = user  # Add user context to event
+            logger.info(f"Authenticated user: {user.get('email', user.get('sub'))}")
+        except Exception as e:
+            logger.warning(f"Authentication failed: {str(e)}")
+            return _error_response(401, str(e), "Unauthorized", event=event)
+
+    # Check if user is admin for admin-only endpoints
+    admin_endpoints = [
+        ('/recruiter-submissions', 'GET'),  # List all submissions
+        ('/recruiter-submissions/', 'GET'),  # Get submission details (starts with)
+        ('/status', 'PUT'),  # Update status (ends with)
+        ('/notes', 'PUT'),  # Update notes (ends with)
+        ('/cv-upload', 'POST'),  # Upload CV (ends with)
+        ('/applications', 'GET'),  # List applications
+        ('/applications', 'POST'),  # Create application
+        ('/applications/', 'GET'),  # Get application (starts with)
+        ('/applications/', 'PUT'),  # Update application (starts with)
+        ('/applications/', 'DELETE'),  # Delete application (starts with)
+        ('/cv-upload-url', 'POST')  # CV upload URL (ends with)
+    ]
+
+    is_admin_endpoint = False
+    for endpoint_path, endpoint_method in admin_endpoints:
+        if endpoint_method == method:
+            if endpoint_path.endswith('/') and path.startswith(endpoint_path):
+                is_admin_endpoint = True
+                break
+            elif path.endswith(endpoint_path):
+                is_admin_endpoint = True
+                break
+            elif path == endpoint_path:
+                is_admin_endpoint = True
+                break
+
+    if is_admin_endpoint and user and not is_admin(user):
+        logger.warning(f"Access denied for non-admin user: {user.get('email', user.get('sub'))}")
+        return _error_response(403, "Admin access required", "Forbidden", event=event)
 
     # Route to appropriate handler
     try:
