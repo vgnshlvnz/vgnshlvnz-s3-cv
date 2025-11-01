@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Job Application Tracker - Vigneshwaran Ravichandran</title>
+    <meta name="description" content="Job Application Tracker - S3-based tracking system"/>
+    <meta name="robots" content="NOINDEX,NOFOLLOW">
+    
+    <!-- Clean typography and minimal styling -->
+    <link href="https://fonts.googleapis.com/css2?family=Liberation+Mono:wght@400;700&family=Liberation+Sans:wght@400;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="css/style.css">
+    <style>
+        /* Additional styles for job tracker */
+        .job-form {
+            background: #f8f8f8;
+            border: 1px solid #ddd;
+            padding: 1.5rem;
+            margin: 1rem 0;
+            border-radius: 4px;
+        }
+        .form-row {
+            display: flex;
+            gap: 1rem;
+            margin-bottom: 1rem;
+        }
+        .form-group {
+            flex: 1;
+        }
+        .form-group label {
+            display: block;
+            margin-bottom: 0.5rem;
+            font-weight: bold;
+        }
+        .form-group input,
+        .form-group textarea,
+        .form-group select {
+            width: 100%;
+            padding: 0.5rem;
+            border: 1px solid #ccc;
+            border-radius: 3px;
+            font-family: 'Liberation Sans', sans-serif;
+        }
+        .form-group textarea {
+            height: 80px;
+            resize: vertical;
+        }
+        .btn {
+            background: #333;
+            color: white;
+            padding: 0.8rem 1.5rem;
+            border: none;
+            border-radius: 3px;
+            cursor: pointer;
+            font-family: 'Liberation Sans', sans-serif;
+        }
+        .btn:hover {
+            background: #555;
+        }
+        .btn-secondary {
+            background: #666;
+        }
+        .applications-list {
+            margin-top: 2rem;
+        }
+        .app-item {
+            border: 1px solid #ddd;
+            padding: 1rem;
+            margin-bottom: 1rem;
+            border-radius: 4px;
+            background: white;
+        }
+        .app-header {
+            display: flex;
+            justify-content: between;
+            align-items: center;
+            margin-bottom: 0.5rem;
+        }
+        .app-title {
+            font-weight: bold;
+            font-size: 1.1rem;
+        }
+        .app-status {
+            padding: 0.2rem 0.5rem;
+            border-radius: 3px;
+            font-size: 0.8rem;
+            text-transform: uppercase;
+        }
+        .status-applied { background: #e3f2fd; color: #1976d2; }
+        .status-interview { background: #fff3e0; color: #f57c00; }
+        .status-offer { background: #e8f5e8; color: #388e3c; }
+        .status-rejected { background: #ffebee; color: #d32f2f; }
+        .app-meta {
+            color: #666;
+            font-size: 0.9rem;
+            margin-bottom: 0.5rem;
+        }
+        .tags {
+            margin-top: 0.5rem;
+        }
+        .tag {
+            display: inline-block;
+            background: #f0f0f0;
+            color: #333;
+            padding: 0.2rem 0.5rem;
+            margin-right: 0.5rem;
+            border-radius: 3px;
+            font-size: 0.8rem;
+        }
+        .loading {
+            text-align: center;
+            padding: 2rem;
+            color: #666;
+        }
+        .error {
+            background: #ffebee;
+            color: #d32f2f;
+            padding: 1rem;
+            border-radius: 4px;
+            margin: 1rem 0;
+        }
+        .success {
+            background: #e8f5e8;
+            color: #388e3c;
+            padding: 1rem;
+            border-radius: 4px;
+            margin: 1rem 0;
+        }
+        @media (max-width: 768px) {
+            .form-row {
+                flex-direction: column;
+                gap: 0;
+            }
+            .app-header {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+        }
+    </style>
+</head>
+<body>
+
+<manpage>
+    <b>JOB APPLICATION TRACKER</b><br>
+</manpage>
+
+<name>
+    <section>
+        <span class="name">
+            S3-BASED APPLICATION TRACKING SYSTEM
+        </span>
+    </section>
+</name>
+
+<manpage>
+    <br><b>NAVIGATION</b><br>
+</manpage>
+
+<nav>
+<section>
+    <span class="home">
+        <a href="index.html">[portfolio]</a>
+        <a href="#new-application">[new application]</a>
+        <a href="#applications">[view applications]</a>
+        <a href="#stats">[statistics]</a>
+    </span>
+</section>
+</nav>
+
+<manpage>
+    <br><b>NEW APPLICATION</b><br>
+</manpage>
+
+<main id="new-application">
+    <div class="job-form">
+        <form id="job-form">
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="job_title">Job Title *</label>
+                    <input type="text" id="job_title" name="job_title" required>
+                </div>
+                <div class="form-group">
+                    <label for="company_name">Company Name *</label>
+                    <input type="text" id="company_name" name="company_name" required>
+                </div>
+            </div>
+
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="agency_name">Agency/Recruiter</label>
+                    <input type="text" id="agency_name" name="agency_name">
+                </div>
+                <div class="form-group">
+                    <label for="caller_method">Contact Method</label>
+                    <select id="caller_method" name="caller_method">
+                        <option value="phone">Phone</option>
+                        <option value="email">Email</option>
+                        <option value="linkedin">LinkedIn</option>
+                        <option value="portal">Job Portal</option>
+                        <option value="referral">Referral</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="caller_name">Contact Person</label>
+                    <input type="text" id="caller_name" name="caller_name">
+                </div>
+                <div class="form-group">
+                    <label for="caller_email">Contact Email</label>
+                    <input type="email" id="caller_email" name="caller_email">
+                </div>
+                <div class="form-group">
+                    <label for="caller_phone">Contact Phone</label>
+                    <input type="tel" id="caller_phone" name="caller_phone">
+                </div>
+            </div>
+
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="salary_min">Salary Min (MYR)</label>
+                    <input type="number" id="salary_min" name="salary_min" step="500">
+                </div>
+                <div class="form-group">
+                    <label for="salary_max">Salary Max (MYR)</label>
+                    <input type="number" id="salary_max" name="salary_max" step="500">
+                </div>
+                <div class="form-group">
+                    <label for="status">Status</label>
+                    <select id="status" name="status">
+                        <option value="applied">Applied</option>
+                        <option value="screening">Screening</option>
+                        <option value="interview">Interview</option>
+                        <option value="offer">Offer</option>
+                        <option value="rejected">Rejected</option>
+                        <option value="withdrawn">Withdrawn</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="perks">Perks (comma-separated)</label>
+                    <input type="text" id="perks" name="perks" placeholder="medical, bonus, remote-2d, flexible_hours">
+                </div>
+                <div class="form-group">
+                    <label for="tags">Tags (comma-separated)</label>
+                    <input type="text" id="tags" name="tags" placeholder="priority, devops, aws, kubernetes">
+                </div>
+            </div>
+
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="roles">Role Description</label>
+                    <textarea id="roles" name="roles" placeholder="Brief description of the role..."></textarea>
+                </div>
+                <div class="form-group">
+                    <label for="responsibilities">Key Responsibilities</label>
+                    <textarea id="responsibilities" name="responsibilities" placeholder="Main responsibilities (comma-separated)..."></textarea>
+                </div>
+            </div>
+
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="skillsets">Required Skills</label>
+                    <textarea id="skillsets" name="skillsets" placeholder="Required technical skills (comma-separated)..."></textarea>
+                </div>
+                <div class="form-group">
+                    <label for="notes">Additional Notes</label>
+                    <textarea id="notes" name="notes" placeholder="Questions asked, info provided, etc..."></textarea>
+                </div>
+            </div>
+
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="cv_file">Customized CV (PDF)</label>
+                    <input type="file" id="cv_file" name="cv_file" accept=".pdf">
+                    <small>Upload role-specific CV version</small>
+                </div>
+            </div>
+
+            <div class="form-row">
+                <button type="submit" class="btn">Save Application</button>
+                <button type="reset" class="btn btn-secondary">Clear Form</button>
+            </div>
+        </form>
+        
+        <div id="form-message"></div>
+    </div>
+</main>
+
+<manpage>
+    <br><b>APPLICATIONS</b><br>
+</manpage>
+
+<main id="applications">
+    <div class="applications-list">
+        <div id="apps-loading" class="loading">Loading applications...</div>
+        <div id="apps-error" class="error" style="display: none;"></div>
+        <div id="apps-list"></div>
+    </div>
+</main>
+
+<manpage>
+    <br><b>STATISTICS</b><br>
+</manpage>
+
+<main id="stats">
+    <div id="stats-summary">
+        <h3>Application Summary</h3>
+        <div id="stats-content" class="loading">Loading statistics...</div>
+    </div>
+</main>
+
+<footer>
+<section>
+<p>&copy; 2025 Vigneshwaran Ravichandran | <a href="index.html">Back to Portfolio</a></p>
+</section>
+</footer>
+
+<script src="js/job-tracker.js"></script>
+</body>
+</html>
