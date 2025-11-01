@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Portfolio - Local Preview</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/materialize/1.0.0/css/materialize.min.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+    <style>
+        body {
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .preview-card {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        .preview-item {
+            margin: 20px 0;
+            padding: 20px;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .file-list {
+            font-family: monospace;
+            background: #f8f8f8;
+            padding: 15px;
+            border-radius: 4px;
+            border-left: 4px solid #2196F3;
+        }
+        .status-good { color: #4CAF50; }
+        .status-todo { color: #FF9800; }
+        .btn-preview {
+            margin: 10px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="preview-card">
+            <div class="card">
+                <div class="card-content">
+                    <span class="card-title blue-text">
+                        <i class="material-icons left">web</i>
+                        Portfolio Website Created Successfully!
+                    </span>
+                    
+                    <div class="preview-item">
+                        <h5><i class="material-icons left status-good">check_circle</i>Project Structure</h5>
+                        <div class="file-list">
+vgnshlvnz-s3-bucket/<br>
+├── index.html &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="status-good">✓ Created</span><br>
+├── css/<br>
+│   └── style.css &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="status-good">✓ Created</span><br>
+├── js/<br>
+│   └── script.js &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="status-good">✓ Created</span><br>
+├── images/<br>
+│   └── profile.jpg &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="status-todo">⚠ Add your photo</span><br>
+├── downloads/<br>
+│   ├── CV.pdf &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="status-todo">⚠ Add your CV</span><br>
+│   └── CV.docx &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="status-todo">⚠ Add your CV</span><br>
+└── README.md &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="status-good">✓ Created</span>
+                        </div>
+                    </div>
+
+                    <div class="preview-item">
+                        <h5><i class="material-icons left status-good">widgets</i>Features Implemented</h5>
+                        <div class="row">
+                            <div class="col s12 m6">
+                                <ul class="collection">
+                                    <li class="collection-item"><i class="material-icons left tiny status-good">check</i>Responsive Design</li>
+                                    <li class="collection-item"><i class="material-icons left tiny status-good">check</i>Material Design UI</li>
+                                    <li class="collection-item"><i class="material-icons left tiny status-good">check</i>CV Download Feature</li>
+                                    <li class="collection-item"><i class="material-icons left tiny status-good">check</i>Smooth Animations</li>
+                                </ul>
+                            </div>
+                            <div class="col s12 m6">
+                                <ul class="collection">
+                                    <li class="collection-item"><i class="material-icons left tiny status-good">check</i>Mobile Navigation</li>
+                                    <li class="collection-item"><i class="material-icons left tiny status-good">check</i>Contact Section</li>
+                                    <li class="collection-item"><i class="material-icons left tiny status-good">check</i>Skills Display</li>
+                                    <li class="collection-item"><i class="material-icons left tiny status-good">check</i>Project Showcase</li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="preview-item">
+                        <h5><i class="material-icons left status-todo">assignment</i>Next Steps</h5>
+                        <ol>
+                            <li><strong>Add Your Profile Photo</strong>: Place your photo as <code>images/profile.jpg</code></li>
+                            <li><strong>Add Your CV Files</strong>: Add PDF and Word versions in <code>downloads/</code> folder</li>
+                            <li><strong>Customize Content</strong>: Update personal information in <code>index.html</code></li>
+                            <li><strong>Deploy to S3</strong>: Follow the AWS S3 setup guide in README.md</li>
+                        </ol>
+                    </div>
+
+                    <div class="preview-item">
+                        <h5><i class="material-icons left">cloud_upload</i>AWS S3 Deployment Ready</h5>
+                        <p>This static website is optimized for AWS S3 hosting with:</p>
+                        <div class="chip blue white-text">Static HTML/CSS/JS</div>
+                        <div class="chip green white-text">No server required</div>
+                        <div class="chip orange white-text">CDN compatible</div>
+                        <div class="chip purple white-text">HTTPS ready</div>
+                    </div>
+
+                    <div class="card-action">
+                        <a href="index.html" class="btn blue waves-effect waves-light btn-preview">
+                            <i class="material-icons left">visibility</i>Preview Website
+                        </a>
+                        <a href="#" onclick="window.open('index.html', '_blank')" class="btn green waves-effect waves-light btn-preview">
+                            <i class="material-icons left">open_in_new</i>Open in New Tab
+                        </a>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-content">
+                    <span class="card-title">Quick Customization Guide</span>
+                    <div class="row">
+                        <div class="col s12 m6">
+                            <h6>Personal Information</h6>
+                            <ul>
+                                <li>Update name and title in hero section</li>
+                                <li>Modify about section description</li>
+                                <li>Add your work experience</li>
+                                <li>Update skills and technologies</li>
+                                <li>Add your projects with GitHub links</li>
+                            </ul>
+                        </div>
+                        <div class="col s12 m6">
+                            <h6>Contact & Social</h6>
+                            <ul>
+                                <li>Update email address</li>
+                                <li>Add phone number</li>
+                                <li>Set your location</li>
+                                <li>Update GitHub and LinkedIn URLs</li>
+                                <li>Add additional social media</li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/materialize/1.0.0/js/materialize.min.js"></script>
+</body>
+</html>

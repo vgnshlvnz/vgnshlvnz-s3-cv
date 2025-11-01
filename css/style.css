@@ -1,0 +1,457 @@
+/* Unix Man Page CV Styles - Based on vgnshlv.nz aesthetic */
+
+/* Global Styles */
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: 'Liberation Sans', 'DejaVu Sans', sans-serif;
+    line-height: 1.6;
+    color: #333;
+    background-color: #fff;
+    max-width: 800px;
+    margin: 0 auto;
+    padding: 20px;
+    font-size: 16px;
+}
+
+/* Typography */
+h1, h2, h3, h4, h5, h6 {
+    font-family: 'Liberation Sans', 'DejaVu Sans', sans-serif;
+    font-weight: bold;
+    margin: 1em 0 0.5em 0;
+}
+
+h3 {
+    font-size: 1.2em;
+    margin-top: 1.5em;
+}
+
+p {
+    margin: 0.5em 0;
+}
+
+a {
+    color: #0066cc;
+    text-decoration: none;
+}
+
+a:hover {
+    text-decoration: underline;
+}
+
+/* Man page structure */
+manpage {
+    display: block;
+    font-weight: bold;
+    margin: 2em 0 0.5em 0;
+}
+
+manpage b {
+    font-size: 1.1em;
+}
+
+name {
+    display: block;
+    margin: 1em 0;
+}
+
+name .name {
+    font-size: 1.3em;
+    font-weight: bold;
+    display: block;
+}
+
+main {
+    display: block;
+    margin: 1em 0;
+    padding-left: 0;
+}
+
+/* Navigation */
+nav {
+    margin: 1em 0;
+}
+
+nav .home a {
+    margin-right: 1em;
+    font-weight: normal;
+    color: #0066cc;
+}
+
+nav .home a:hover {
+    text-decoration: underline;
+}
+
+/* Tab navigation for skills */
+.tab-nav {
+    margin: 1em 0;
+    border-bottom: 1px solid #ccc;
+}
+
+.tab-nav a {
+    display: inline-block;
+    padding: 0.5em 1em;
+    margin-right: 0.5em;
+    border: 1px solid #ccc;
+    border-bottom: none;
+    background: #f5f5f5;
+    color: #333;
+    text-decoration: none;
+}
+
+.tab-nav a:hover,
+.tab-nav a.active {
+    background: #fff;
+    border-color: #999;
+}
+
+/* Tab content */
+.tab-content {
+    display: none;
+    padding: 1em 0;
+}
+
+.tab-content:target,
+.tab-content:first-of-type {
+    display: block;
+}
+
+.tab-content:target ~ .tab-content:first-of-type {
+    display: none;
+}
+
+/* Skills section */
+.skill-section {
+    margin: 1em 0;
+}
+
+.skill-item {
+    margin: 0.8em 0;
+    padding: 0.3em 0;
+}
+
+.skill-name {
+    display: inline-block;
+    width: 250px;
+    font-weight: 600;
+    vertical-align: top;
+}
+
+/* Progress indicators using dots */
+.progress-dots {
+    display: inline-block;
+    letter-spacing: 0.2em;
+    font-family: monospace;
+    margin-left: 1em;
+}
+
+.progress-dots:after {
+    content: '○○○○○';
+    color: #ddd;
+}
+
+.level-5:after { content: '●●●●●'; color: #333; }
+.level-4:after { content: '●●●●○'; color: #333; }
+.level-3:after { content: '●●●○○'; color: #333; }
+.level-2:after { content: '●●○○○'; color: #333; }
+.level-1:after { content: '●○○○○'; color: #333; }
+
+/* Badge styles for technologies */
+.badge {
+    display: inline-block;
+    padding: 0.2em 0.5em;
+    margin: 0.1em 0.2em;
+    border: 1px solid #999;
+    background: #f9f9f9;
+    font-size: 0.9em;
+    border-radius: 3px;
+}
+
+.badge:hover {
+    background: #eee;
+}
+
+/* Timeline styles for experience */
+.timeline {
+    margin: 1em 0;
+}
+
+.timeline-item {
+    margin: 1em 0;
+    border-left: 2px solid #ddd;
+    padding-left: 1em;
+    position: relative;
+}
+
+.timeline-item:before {
+    content: '▶';
+    position: absolute;
+    left: -8px;
+    background: #fff;
+    color: #666;
+    font-size: 12px;
+    width: 16px;
+    text-align: center;
+}
+
+/* Expandable sections */
+.expand-checkbox {
+    display: none;
+}
+
+.expand-label {
+    cursor: pointer;
+    display: block;
+    padding: 0.5em 0;
+    font-weight: normal;
+}
+
+.expand-label:after {
+    content: '';
+}
+
+.expand-label:hover {
+    color: #0066cc;
+}
+
+.expand-content {
+    max-height: 0;
+    overflow: hidden;
+    transition: max-height 0.3s ease-out;
+}
+
+.expand-checkbox:checked ~ .expand-content {
+    max-height: 1000px;
+    transition: max-height 0.5s ease-in;
+}
+
+.expand-content ul {
+    margin: 0.5em 0;
+    padding-left: 1.5em;
+}
+
+.expand-content li {
+    margin: 0.3em 0;
+    list-style-type: disc;
+}
+
+/* Experience cards for projects */
+.experience-card {
+    border: 1px solid #ddd;
+    padding: 1em;
+    margin: 1em 0;
+    background: #fafafa;
+}
+
+.experience-card:hover {
+    background: #f5f5f5;
+}
+
+.card-title {
+    font-weight: bold;
+    font-size: 1.1em;
+    margin-bottom: 0.3em;
+}
+
+.card-meta {
+    font-style: italic;
+    color: #666;
+    margin-bottom: 0.5em;
+    font-size: 0.9em;
+}
+
+/* Lists */
+ul {
+    margin: 0.5em 0;
+    padding-left: 2em;
+}
+
+li {
+    margin: 0.2em 0;
+}
+
+/* Footer */
+footer {
+    margin-top: 3em;
+    padding-top: 1em;
+    border-top: 1px solid #ddd;
+    text-align: center;
+    font-size: 0.9em;
+    color: #666;
+}
+
+/* Modal styles - simplified */
+.modal {
+    display: none;
+    position: fixed;
+    z-index: 1000;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0,0,0,0.5);
+}
+
+.modal.open {
+    display: block;
+}
+
+.modal-content {
+    background-color: #fff;
+    margin: 15% auto;
+    padding: 20px;
+    border: 1px solid #888;
+    width: 400px;
+    max-width: 80%;
+    border-radius: 5px;
+}
+
+.modal h4 {
+    margin-top: 0;
+    color: #333;
+}
+
+.download-options {
+    margin: 1em 0;
+}
+
+.download-btn {
+    display: block;
+    width: 100%;
+    padding: 0.8em;
+    margin: 0.5em 0;
+    text-align: center;
+    border: 1px solid #ddd;
+    background: #f9f9f9;
+    color: #333;
+    text-decoration: none;
+    border-radius: 3px;
+}
+
+.download-btn:hover {
+    background: #eee;
+    text-decoration: none;
+}
+
+.modal-footer {
+    text-align: right;
+    margin-top: 1em;
+    padding-top: 1em;
+    border-top: 1px solid #eee;
+}
+
+.modal-close {
+    color: #666;
+    cursor: pointer;
+    text-decoration: none;
+}
+
+.modal-close:hover {
+    text-decoration: underline;
+}
+
+/* Responsive design */
+@media (max-width: 768px) {
+    body {
+        padding: 10px;
+        font-size: 14px;
+    }
+    
+    .skill-name {
+        display: block;
+        width: 100%;
+        margin-bottom: 0.3em;
+    }
+    
+    .progress-dots {
+        margin-left: 0;
+    }
+    
+    .modal-content {
+        width: 90%;
+        margin: 10% auto;
+    }
+    
+    nav .home a {
+        display: inline-block;
+        margin: 0.2em 0.5em 0.2em 0;
+        font-size: 0.9em;
+    }
+}
+
+@media (max-width: 480px) {
+    body {
+        padding: 5px;
+        font-size: 13px;
+    }
+    
+    .experience-card {
+        padding: 0.8em;
+    }
+    
+    .tab-nav a {
+        font-size: 0.9em;
+        padding: 0.4em 0.8em;
+    }
+}
+
+/* Print styles */
+@media print {
+    body {
+        max-width: none;
+        font-size: 12pt;
+        line-height: 1.4;
+    }
+    
+    .modal, nav {
+        display: none !important;
+    }
+    
+    .expand-content {
+        max-height: none !important;
+    }
+    
+    .expand-checkbox:checked ~ .expand-content,
+    .expand-content {
+        max-height: none;
+        overflow: visible;
+    }
+    
+    a[href]:after {
+        content: " (" attr(href) ")";
+        font-size: 0.8em;
+        color: #666;
+    }
+    
+    .experience-card {
+        border: 1px solid #999;
+        break-inside: avoid;
+    }
+}
+
+/* Smooth scrolling */
+html {
+    scroll-behavior: smooth;
+}
+
+/* Focus styles for accessibility */
+a:focus,
+.expand-label:focus,
+.download-btn:focus,
+.modal-close:focus {
+    outline: 2px solid #0066cc;
+    outline-offset: 2px;
+}
+
+/* Hide content by default, show on target */
+.tab-content {
+    display: none;
+}
+
+.tab-content:first-child {
+    display: block;
+}
