@@ -6,18 +6,7 @@ Description: >
   Serverless infrastructure for hosting cv.vgnshlv.nz portfolio site
   with S3, CloudFront CDN, and SSL certificate.
 
-Metadata:
-  AWS::ServerlessRepo::Application:
-    Name: vgnshlvnz-portfolio
-    Description: Personal CV portfolio website with CloudFront CDN
-    Author: vgnshlvnz
-    SpdxLicenseId: MIT
-    LicenseUrl: LICENSE
-    ReadmeUrl: README.md
-    Labels: ['portfolio', 'static-website', 'cloudfront', 's3']
-    HomePageUrl: https://cv.vgnshlv.nz
-    SemanticVersion: 1.0.0
-    SourceCodeUrl: https://github.com/vgnshlvnz/vgnshlvnz-s3-cv
+# Metadata removed for deployment - can be added back later if publishing to SAR
 
 Parameters:
   BucketName:

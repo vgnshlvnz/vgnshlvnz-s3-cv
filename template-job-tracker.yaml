@@ -124,7 +124,7 @@ Resources:
             AllowedOrigins:
               - 'https://cv.vgnshlv.nz'
               - 'https://d1cda43lowke66.cloudfront.net'
-            ExposeHeaders:
+            ExposedHeaders:
               - ETag
               - x-amz-server-side-encryption
               - x-amz-request-id
@@ -136,38 +136,8 @@ Resources:
         IgnorePublicAcls: true
         RestrictPublicBuckets: true
 
-      NotificationConfiguration:
-        LambdaConfigurations:
-          # Trigger file validation on CV uploads
-          - Event: s3:ObjectCreated:*
-            Function: !GetAtt FileValidatorFunction.Arn
-            Filter:
-              S3Key:
-                Rules:
-                  - Name: prefix
-                    Value: applications/
-                  - Name: suffix
-                    Value: .pdf
-          # Validate DOCX uploads
-          - Event: s3:ObjectCreated:*
-            Function: !GetAtt FileValidatorFunction.Arn
-            Filter:
-              S3Key:
-                Rules:
-                  - Name: prefix
-                    Value: applications/
-                  - Name: suffix
-                    Value: .docx
-          # Validate DOC uploads
-          - Event: s3:ObjectCreated:*
-            Function: !GetAtt FileValidatorFunction.Arn
-            Filter:
-              S3Key:
-                Rules:
-                  - Name: prefix
-                    Value: applications/
-                  - Name: suffix
-                    Value: .doc
+      # Note: NotificationConfiguration will be added via AWS CLI after stack deployment
+      # to avoid circular dependency issues. See PHASE2-DEPLOYMENT.md for configuration commands.
 
       Tags:
         - Key: Project
