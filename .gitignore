@@ -1,1 +1,39 @@
 /.aws-sam/
+
+# MCP configuration (contains secrets/tokens)
+.mcp.json
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+pip-log.txt
+
+# AWS
+.aws/
+aws-exports.js
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+*.tmp
+.DS_Store
