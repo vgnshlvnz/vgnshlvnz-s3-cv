@@ -249,19 +249,19 @@
             background: #5a6268;
         }
 
-        .whatsapp-btn {
-            background: #25D366;
+        .email-btn {
+            background: #3498db;
             padding: 5px 12px;
             margin: 0;
             font-size: 16px;
             border-radius: 4px;
         }
 
-        .whatsapp-btn:hover {
-            background: #128C7E;
+        .email-btn:hover {
+            background: #2980b9;
         }
 
-        .whatsapp-btn:disabled {
+        .email-btn:disabled {
             background: #ccc;
             cursor: not-allowed;
         }
@@ -374,7 +374,7 @@
         </div>
     </div>
 
-    <script src="https://sdk.amazonaws.com/js/aws-sdk-2.1000.0.min.js"></script>
+    <script src="https://sdk.amazonaws.com/js/aws-sdk-2.1000.0.min.js" integrity="sha384-BOEcjazI3616mVk0MbtJ3KNhp85nYlJGuOpgJRw4KCxuB7ml/yU2GpTRkf4WOi6v" crossorigin="anonymous"></script>
     <script>
         // Configuration - Cognito values from deployed stack
         const COGNITO_CONFIG = {
@@ -481,10 +481,10 @@
                     <td onclick="viewSubmission('${sub.submission_id}')">${sub.salary_max ? sub.salary_max.toLocaleString() : 'N/A'}</td>
                     <td onclick="viewSubmission('${sub.submission_id}')"><span class="status-badge status-${sub.status}">${sub.status.toUpperCase().replace('_', ' ')}</span></td>
                     <td>
-                        <button onclick="event.stopPropagation(); sendWhatsApp('${sub.submission_id}')"
-                                class="whatsapp-btn"
-                                title="Send WhatsApp notification">
-                            💬
+                        <button onclick="event.stopPropagation(); sendEmail('${sub.submission_id}')"
+                                class="email-btn"
+                                title="Send email notification">
+                            📧
                         </button>
                     </td>
                 </tr>
@@ -574,10 +574,10 @@
                 </div>
 
                 <div class="detail-section">
-                    <h3>WhatsApp Notifications</h3>
-                    ${renderWhatsAppHistory(sub.whatsapp_history || [])}
-                    <button onclick="sendWhatsApp('${sub.submission_id}')" class="whatsapp-btn" style="margin-top: 10px;">
-                        💬 Send WhatsApp Now
+                    <h3>Email Notifications</h3>
+                    ${renderEmailHistory(sub.email_history || [])}
+                    <button onclick="sendEmail('${sub.submission_id}')" class="email-btn" style="margin-top: 10px;">
+                        📧 Send Email Now
                     </button>
                 </div>
             `;
@@ -633,14 +633,14 @@
             alert('CV Upload feature: Create a file input and use the presigned URL from POST /recruiter-submissions/' + id + '/cv-upload');
         }
 
-        // Render WhatsApp History
-        function renderWhatsAppHistory(history) {
+        // Render Email History
+        function renderEmailHistory(history) {
             if (!history || history.length === 0) {
-                return '<div style="color: #999; font-style: italic;">No WhatsApp notifications sent yet</div>';
+                return '<div style="color: #999; font-style: italic;">No email notifications sent yet</div>';
             }
 
             return history.map(entry => {
-                const statusColor = entry.status === 'sent' ? '#25D366' :
+                const statusColor = entry.status === 'sent' ? '#3498db' :
                                    entry.status === 'failed' ? '#dc3545' : '#ff9800';
                 const statusIcon = entry.status === 'sent' ? '✓' :
                                   entry.status === 'failed' ? '✗' : '⚠';
@@ -662,14 +662,14 @@
             }).reverse().join(''); // Most recent first
         }
 
-        // Send WhatsApp Notification
-        async function sendWhatsApp(id) {
-            if (!confirm('Send WhatsApp notification for this submission?')) {
+        // Send Email Notification
+        async function sendEmail(id) {
+            if (!confirm('Send email notification for this submission?')) {
                 return;
             }
 
             try {
-                const response = await fetch(`${API_BASE_URL}/recruiter-submissions/${id}/send-whatsapp`, {
+                const response = await fetch(`${API_BASE_URL}/recruiter-submissions/${id}/send-email`, {
                     method: 'POST',
                     headers: {
                         'Authorization': `Bearer ${idToken}`
@@ -680,9 +680,9 @@
 
                 if (response.ok) {
                     if (result.status === 'sent') {
-                        alert(`WhatsApp notification sent successfully!\\nMessage ID: ${result.message_id}`);
+                        alert(`Email notification sent successfully!\\nMessage ID: ${result.message_id}`);
                     } else {
-                        alert(`WhatsApp notification failed:\\n${result.error}`);
+                        alert(`Email notification failed:\\n${result.error}`);
                     }
                     // Reload submission details to show updated history
                     viewSubmission(id);
@@ -690,8 +690,8 @@
                     alert(`Error: ${result.error || result.message || 'Unknown error'}`);
                 }
             } catch (error) {
-                console.error('Error sending WhatsApp:', error);
-                alert('Error sending WhatsApp notification. Check console for details.');
+                console.error('Error sending email:', error);
+                alert('Error sending email notification. Check console for details.');
             }
         }
 
