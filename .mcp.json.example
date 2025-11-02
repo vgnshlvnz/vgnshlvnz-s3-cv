@@ -47,6 +47,11 @@
       "command": "trivy",
       "args": ["mcp"]
     },
+    "kubernetes": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["mcp-server-kubernetes"]
+    },
     "safe-local-python-executor": {
       "type": "stdio",
       "command": "uv",
