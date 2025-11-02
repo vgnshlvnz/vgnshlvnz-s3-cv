@@ -111,7 +111,7 @@ class JobTracker {
             messageEl.innerHTML = `
                 <div class="success">
                     <strong>Application saved successfully!</strong><br>
-                    Application ID: ${result.application_id}
+                    Application ID: ${this.escapeHtml(result.application_id)}
                     ${cvFile && cvFile.size > 0 ? '<br>CV uploaded successfully!' : ''}
                 </div>
             `;
@@ -128,7 +128,7 @@ class JobTracker {
             messageEl.innerHTML = `
                 <div class="error">
                     <strong>Error saving application:</strong><br>
-                    ${error.message}
+                    ${this.escapeHtml(error.message)}
                 </div>
             `;
         }
@@ -195,10 +195,10 @@ class JobTracker {
             <div class="app-item">
                 <div class="app-header">
                     <div class="app-title">${this.escapeHtml(app.job_title)} at ${this.escapeHtml(app.company_name)}</div>
-                    <div class="app-status status-${app.status}">${app.status}</div>
+                    <div class="app-status status-${this.escapeHtml(app.status)}">${this.escapeHtml(app.status)}</div>
                 </div>
                 <div class="app-meta">
-                    <strong>ID:</strong> ${app.application_id} | 
+                    <strong>ID:</strong> ${this.escapeHtml(app.application_id)} |
                     <strong>Applied:</strong> ${this.formatDate(app.created_at)} |
                     ${app.agency_name ? `<strong>Agency:</strong> ${this.escapeHtml(app.agency_name)}` : 'Direct Application'}
                 </div>
@@ -208,7 +208,7 @@ class JobTracker {
                     </div>
                 ` : ''}
                 <div style="margin-top: 0.5rem;">
-                    <button class="btn" onclick="jobTracker.viewApplication('${app.application_id}')" style="padding: 0.4rem 0.8rem; font-size: 0.9rem;">
+                    <button class="btn" onclick="jobTracker.viewApplication('${this.escapeHtml(app.application_id)}')" style="padding: 0.4rem 0.8rem; font-size: 0.9rem;">
                         View Details
                     </button>
                 </div>
@@ -258,10 +258,10 @@ class JobTracker {
                     </div>
                     
                     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
-                        <div><strong>Status:</strong> <span class="app-status status-${app.status}">${app.status}</span></div>
+                        <div><strong>Status:</strong> <span class="app-status status-${this.escapeHtml(app.status)}">${this.escapeHtml(app.status)}</span></div>
                         <div><strong>Applied:</strong> ${this.formatDate(app.created_at)}</div>
-                        <div><strong>Agency:</strong> ${app.agency_name || 'Direct Application'}</div>
-                        <div><strong>Contact Method:</strong> ${app.caller_method || 'N/A'}</div>
+                        <div><strong>Agency:</strong> ${this.escapeHtml(app.agency_name) || 'Direct Application'}</div>
+                        <div><strong>Contact Method:</strong> ${this.escapeHtml(app.caller_method) || 'N/A'}</div>
                     </div>
 
                     ${app.caller && (app.caller.name || app.caller.email || app.caller.phone) ? `
@@ -343,7 +343,7 @@ class JobTracker {
 
         } catch (error) {
             console.error('Error loading stats:', error);
-            statsEl.innerHTML = `<div class="error">Error loading statistics: ${error.message}</div>`;
+            statsEl.innerHTML = `<div class="error">Error loading statistics: ${this.escapeHtml(error.message)}</div>`;
         }
     }
 
@@ -420,7 +420,7 @@ class JobTracker {
                 <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 0.5rem;">
                     ${Object.entries(stats.byStatus).map(([status, count]) => `
                         <div style="padding: 0.5rem; background: #f8f8f8; border-radius: 4px; text-align: center;">
-                            <div class="app-status status-${status}">${status}</div>
+                            <div class="app-status status-${this.escapeHtml(status)}">${this.escapeHtml(status)}</div>
                             <div style="font-weight: bold; margin-top: 0.3rem;">${count}</div>
                         </div>
                     `).join('')}

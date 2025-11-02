@@ -69,11 +69,22 @@ fi
 mkdir -p "$BACKUP_DIR"
 
 echo "  Copying $SOURCE_DIR from $OLD_SERVER..."
-sshpass -p "$OLD_SERVER_PASS" \
+# Security: Use SSH key authentication instead of password authentication
+# To set up SSH keys: ssh-copy-id ${OLD_SERVER_USER}@${OLD_SERVER}
+if [ -n "$OLD_SERVER_PASS" ]; then
+    # If OLD_SERVER_PASS env var is set, use it (for backward compatibility)
+    sshpass -p "$OLD_SERVER_PASS" \
+        rsync -avz --progress \
+        -e "ssh -o StrictHostKeyChecking=no" \
+        "${OLD_SERVER_USER}@${OLD_SERVER}:${SOURCE_DIR}/" \
+        "$BACKUP_DIR/"
+else
+    # Recommended: Use SSH key-based authentication (no password needed)
     rsync -avz --progress \
-    -e "ssh -o StrictHostKeyChecking=no" \
-    "${OLD_SERVER_USER}@${OLD_SERVER}:${SOURCE_DIR}/" \
-    "$BACKUP_DIR/"
+        -e "ssh -o StrictHostKeyChecking=no" \
+        "${OLD_SERVER_USER}@${OLD_SERVER}:${SOURCE_DIR}/" \
+        "$BACKUP_DIR/"
+fi
 
 if [ $? -eq 0 ]; then
     echo -e "${GREEN}✓ Backup created: $BACKUP_DIR${NC}"
