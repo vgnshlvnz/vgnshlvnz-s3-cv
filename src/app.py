@@ -319,10 +319,19 @@ def _response(status_code: int, body: Dict[str, Any], headers: Optional[Dict] = 
 
     default_headers = {
         'Content-Type': 'application/json',
+        # CORS headers
         'Access-Control-Allow-Origin': allowed_origin,
         'Access-Control-Allow-Headers': 'Content-Type,Authorization',
         'Access-Control-Allow-Methods': 'GET,POST,PUT,DELETE,OPTIONS',
-        'Access-Control-Allow-Credentials': 'false'
+        'Access-Control-Allow-Credentials': 'false',
+        # Security headers
+        'X-Content-Type-Options': 'nosniff',  # Prevent MIME type sniffing
+        'X-Frame-Options': 'DENY',  # Prevent clickjacking
+        'X-XSS-Protection': '1; mode=block',  # Enable XSS filter
+        'Strict-Transport-Security': 'max-age=31536000; includeSubDomains',  # Force HTTPS
+        'Content-Security-Policy': "default-src 'self'",  # Restrict resource loading
+        'Referrer-Policy': 'strict-origin-when-cross-origin',  # Control referrer information
+        'Permissions-Policy': 'geolocation=(), microphone=(), camera=()'  # Restrict browser features
     }
     if headers:
         default_headers.update(headers)
@@ -334,9 +343,24 @@ def _response(status_code: int, body: Dict[str, Any], headers: Optional[Dict] = 
     }
 
 
-def _error_response(status_code: int, message: str, error_type: str = 'Error', event: Optional[Dict] = None) -> Dict:
-    """Build error response"""
-    logger.error(f"{error_type}: {message}")
+def _error_response(status_code: int, message: str, error_type: str = 'Error', event: Optional[Dict] = None, internal_error: Optional[str] = None) -> Dict:
+    """
+    Build error response with sanitized messages
+
+    Args:
+        status_code: HTTP status code
+        message: User-facing error message (sanitized)
+        error_type: Error type/category
+        event: Optional event for CORS
+        internal_error: Optional internal error details (logged but not sent to client)
+    """
+    # Log full error details server-side
+    log_message = f"{error_type}: {message}"
+    if internal_error:
+        log_message += f" | Internal: {internal_error}"
+    logger.error(log_message)
+
+    # Return sanitized message to client
     return _response(status_code, {
         'error': error_type,
         'message': message
@@ -423,10 +447,10 @@ def create_application(event: Dict) -> Dict:
     except json.JSONDecodeError as e:
         return _error_response(400, f"Invalid JSON: {str(e)}", "InvalidJSON")
     except ClientError as e:
-        return _error_response(500, f"S3 error: {str(e)}", "S3Error")
+        return _error_response(500, "Storage operation failed", "StorageError", event=event, internal_error=str(e))
     except Exception as e:
         logger.exception("Unexpected error in create_application")
-        return _error_response(500, f"Internal error: {str(e)}", "InternalError")
+        return _error_response(500, "An unexpected error occurred", "InternalError", event=event, internal_error=str(e))
 
 
 def list_applications(event: Dict) -> Dict:
@@ -525,10 +549,10 @@ def list_applications(event: Dict) -> Dict:
         })
 
     except ClientError as e:
-        return _error_response(500, f"S3 error: {str(e)}", "S3Error")
+        return _error_response(500, "Storage operation failed", "StorageError", event=event, internal_error=str(e))
     except Exception as e:
         logger.exception("Unexpected error in list_applications")
-        return _error_response(500, f"Internal error: {str(e)}", "InternalError")
+        return _error_response(500, "An unexpected error occurred", "InternalError", event=event, internal_error=str(e))
 
 
 def get_application(event: Dict) -> Dict:
@@ -584,10 +608,10 @@ def get_application(event: Dict) -> Dict:
     except ValueError as e:
         return _error_response(400, str(e), "InvalidRequest")
     except ClientError as e:
-        return _error_response(500, f"S3 error: {str(e)}", "S3Error")
+        return _error_response(500, "Storage operation failed", "StorageError", event=event, internal_error=str(e))
     except Exception as e:
         logger.exception("Unexpected error in get_application")
-        return _error_response(500, f"Internal error: {str(e)}", "InternalError")
+        return _error_response(500, "An unexpected error occurred", "InternalError", event=event, internal_error=str(e))
 
 
 def update_application(event: Dict) -> Dict:
@@ -654,10 +678,10 @@ def update_application(event: Dict) -> Dict:
     except ValueError as e:
         return _error_response(400, str(e), "InvalidRequest")
     except ClientError as e:
-        return _error_response(500, f"S3 error: {str(e)}", "S3Error")
+        return _error_response(500, "Storage operation failed", "StorageError", event=event, internal_error=str(e))
     except Exception as e:
         logger.exception("Unexpected error in update_application")
-        return _error_response(500, f"Internal error: {str(e)}", "InternalError")
+        return _error_response(500, "An unexpected error occurred", "InternalError", event=event, internal_error=str(e))
 
 
 def delete_application(event: Dict) -> Dict:
@@ -703,10 +727,10 @@ def delete_application(event: Dict) -> Dict:
     except ValueError as e:
         return _error_response(400, str(e), "InvalidRequest")
     except ClientError as e:
-        return _error_response(500, f"S3 error: {str(e)}", "S3Error")
+        return _error_response(500, "Storage operation failed", "StorageError", event=event, internal_error=str(e))
     except Exception as e:
         logger.exception("Unexpected error in delete_application")
-        return _error_response(500, f"Internal error: {str(e)}", "InternalError")
+        return _error_response(500, "An unexpected error occurred", "InternalError", event=event, internal_error=str(e))
 
 
 def get_cv_upload_url(event: Dict) -> Dict:
@@ -757,10 +781,10 @@ def get_cv_upload_url(event: Dict) -> Dict:
     except ValueError as e:
         return _error_response(400, str(e), "InvalidRequest")
     except ClientError as e:
-        return _error_response(500, f"S3 error: {str(e)}", "S3Error")
+        return _error_response(500, "Storage operation failed", "StorageError", event=event, internal_error=str(e))
     except Exception as e:
         logger.exception("Unexpected error in get_cv_upload_url")
-        return _error_response(500, f"Internal error: {str(e)}", "InternalError")
+        return _error_response(500, "An unexpected error occurred", "InternalError", event=event, internal_error=str(e))
 
 
 # ============================================================================
@@ -982,10 +1006,10 @@ def create_recruiter_submission(event: Dict) -> Dict:
     except json.JSONDecodeError as e:
         return _error_response(400, f"Invalid JSON: {str(e)}", "InvalidJSON")
     except ClientError as e:
-        return _error_response(500, f"S3 error: {str(e)}", "S3Error")
+        return _error_response(500, "Storage operation failed", "StorageError", event=event, internal_error=str(e))
     except Exception as e:
         logger.exception("Unexpected error in create_recruiter_submission")
-        return _error_response(500, f"Internal error: {str(e)}", "InternalError")
+        return _error_response(500, "An unexpected error occurred", "InternalError", event=event, internal_error=str(e))
 
 
 def list_recruiter_submissions(event: Dict) -> Dict:
@@ -1083,10 +1107,10 @@ def list_recruiter_submissions(event: Dict) -> Dict:
         })
 
     except ClientError as e:
-        return _error_response(500, f"S3 error: {str(e)}", "S3Error")
+        return _error_response(500, "Storage operation failed", "StorageError", event=event, internal_error=str(e))
     except Exception as e:
         logger.exception("Unexpected error in list_recruiter_submissions")
-        return _error_response(500, f"Internal error: {str(e)}", "InternalError")
+        return _error_response(500, "An unexpected error occurred", "InternalError", event=event, internal_error=str(e))
 
 
 def get_recruiter_submission(event: Dict) -> Dict:
@@ -1167,10 +1191,10 @@ def get_recruiter_submission(event: Dict) -> Dict:
     except ValueError as e:
         return _error_response(400, str(e), "InvalidRequest")
     except ClientError as e:
-        return _error_response(500, f"S3 error: {str(e)}", "S3Error")
+        return _error_response(500, "Storage operation failed", "StorageError", event=event, internal_error=str(e))
     except Exception as e:
         logger.exception("Unexpected error in get_recruiter_submission")
-        return _error_response(500, f"Internal error: {str(e)}", "InternalError")
+        return _error_response(500, "An unexpected error occurred", "InternalError", event=event, internal_error=str(e))
 
 
 def update_recruiter_status(event: Dict) -> Dict:
@@ -1248,10 +1272,10 @@ def update_recruiter_status(event: Dict) -> Dict:
     except ValueError as e:
         return _error_response(400, str(e), "InvalidRequest")
     except ClientError as e:
-        return _error_response(500, f"S3 error: {str(e)}", "S3Error")
+        return _error_response(500, "Storage operation failed", "StorageError", event=event, internal_error=str(e))
     except Exception as e:
         logger.exception("Unexpected error in update_recruiter_status")
-        return _error_response(500, f"Internal error: {str(e)}", "InternalError")
+        return _error_response(500, "An unexpected error occurred", "InternalError", event=event, internal_error=str(e))
 
 
 def update_recruiter_notes(event: Dict) -> Dict:
@@ -1306,10 +1330,10 @@ def update_recruiter_notes(event: Dict) -> Dict:
     except ValueError as e:
         return _error_response(400, str(e), "InvalidRequest")
     except ClientError as e:
-        return _error_response(500, f"S3 error: {str(e)}", "S3Error")
+        return _error_response(500, "Storage operation failed", "StorageError", event=event, internal_error=str(e))
     except Exception as e:
         logger.exception("Unexpected error in update_recruiter_notes")
-        return _error_response(500, f"Internal error: {str(e)}", "InternalError")
+        return _error_response(500, "An unexpected error occurred", "InternalError", event=event, internal_error=str(e))
 
 
 def upload_custom_cv(event: Dict) -> Dict:
@@ -1372,10 +1396,10 @@ def upload_custom_cv(event: Dict) -> Dict:
     except ValueError as e:
         return _error_response(400, str(e), "InvalidRequest")
     except ClientError as e:
-        return _error_response(500, f"S3 error: {str(e)}", "S3Error")
+        return _error_response(500, "Storage operation failed", "StorageError", event=event, internal_error=str(e))
     except Exception as e:
         logger.exception("Unexpected error in upload_custom_cv")
-        return _error_response(500, f"Internal error: {str(e)}", "InternalError")
+        return _error_response(500, "An unexpected error occurred", "InternalError", event=event, internal_error=str(e))
 
 
 def send_email_manually(event: Dict) -> Dict:
@@ -1477,10 +1501,10 @@ def send_email_manually(event: Dict) -> Dict:
     except ValueError as e:
         return _error_response(400, str(e), "InvalidRequest")
     except ClientError as e:
-        return _error_response(500, f"S3 error: {str(e)}", "S3Error")
+        return _error_response(500, "Storage operation failed", "StorageError", event=event, internal_error=str(e))
     except Exception as e:
         logger.exception("Unexpected error in send_email_manually")
-        return _error_response(500, f"Internal error: {str(e)}", "InternalError")
+        return _error_response(500, "An unexpected error occurred", "InternalError", event=event, internal_error=str(e))
 
 
 def lambda_handler(event: Dict, context: Any) -> Dict:
