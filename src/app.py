@@ -23,6 +23,14 @@ from collections import defaultdict
 logger = logging.getLogger()
 logger.setLevel(os.environ.get('LOG_LEVEL', 'INFO'))
 
+# Import WhatsApp notification module
+try:
+    from whatsapp_notifier import send_application_notification, is_whatsapp_enabled
+    WHATSAPP_AVAILABLE = True
+except ImportError as e:
+    logger.warning(f"WhatsApp notifier not available: {e}")
+    WHATSAPP_AVAILABLE = False
+
 # Environment variables
 BUCKET_NAME = os.environ.get('BUCKET_NAME', 'vgnshlvnz-job-tracker')
 PRESIGNED_URL_EXPIRY = int(os.environ.get('PRESIGNED_URL_EXPIRY', '900'))
@@ -910,11 +918,29 @@ def create_recruiter_submission(event: Dict) -> Dict:
 
         logger.info(f"Created recruiter submission: {rec_id}")
 
+        # Send WhatsApp notification (non-blocking, failures don't affect submission)
+        whatsapp_status = "disabled"
+        if WHATSAPP_AVAILABLE and is_whatsapp_enabled():
+            try:
+                # Note: CV will be uploaded later via presigned URL
+                # WhatsApp notification will be sent without CV initially
+                success, message = send_application_notification(meta, cv_info=None)
+                if success:
+                    whatsapp_status = "sent"
+                    logger.info(f"WhatsApp notification sent: {message}")
+                else:
+                    whatsapp_status = "failed"
+                    logger.warning(f"WhatsApp notification failed: {message}")
+            except Exception as e:
+                whatsapp_status = "error"
+                logger.exception(f"Error sending WhatsApp notification: {str(e)}")
+
         return _response(200, {
             "submission_id": rec_id,
             "jd_upload_url": jd_upload_url,
             "jd_upload_url_expires_in": UPLOAD_URL_EXPIRY,
-            "created_at": meta["created_at"]
+            "created_at": meta["created_at"],
+            "whatsapp_notification": whatsapp_status
         }, event=event)
 
     except json.JSONDecodeError as e:
