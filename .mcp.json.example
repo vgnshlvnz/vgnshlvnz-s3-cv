@@ -1,0 +1,61 @@
+{
+  "mcpServers": {
+    "github/github-mcp-server": {
+      "type": "http",
+      "url": "https://api.githubcopilot.com/mcp/",
+      "gallery": "https://api.mcp.github.com/2025-09-15/v0/servers/ab12cd34-5678-90ef-1234-567890abcdef",
+      "version": "0.13.0",
+      "headers": {
+        "Authorization": "Bearer YOUR_GITHUB_TOKEN_HERE"
+      }
+    },
+    "docker": {
+      "type": "stdio",
+      "command": "uvx",
+      "args": ["mcp-server-docker", "--socket", "/var/run/docker.sock"]
+    },
+    "AWS Documentation MCP Server": {
+      "type": "stdio",
+      "command": "uvx",
+      "args": ["awslabs.aws-documentation-mcp-server@latest"],
+      "env": {
+        "FASTMCP_LOG_LEVEL": "ERROR",
+        "AWS_DOCUMENTATION_PARTITION": "aws"
+      },
+      "autoApprove": []
+    },
+    "AWS API MCP Server": {
+      "type": "stdio",
+      "command": "uvx",
+      "args": ["awslabs.aws-api-mcp-server@latest"],
+      "env": {
+        "AWS_REGION": "ap-southeast-5"
+      }
+    },
+    "awsCLI": {
+      "type": "stdio",
+      "command": "/home/agh0ri/.cargo/bin/use_aws_mcp",
+      "args": []
+    },
+    "semgrep": {
+      "type": "stdio",
+      "command": "uvx",
+      "args": ["semgrep-mcp"]
+    },
+    "trivy": {
+      "type": "stdio",
+      "command": "trivy",
+      "args": ["mcp"]
+    },
+    "safe-local-python-executor": {
+      "type": "stdio",
+      "command": "uv",
+      "args": [
+        "--directory",
+        "/home/agh0ri/mcp_safe_local_python_executor/",
+        "run",
+        "mcp_server.py"
+      ]
+    }
+  }
+}
