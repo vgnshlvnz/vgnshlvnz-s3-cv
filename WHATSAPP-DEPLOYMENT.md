@@ -1,14 +1,23 @@
-# WhatsApp Notifications Deployment Guide
+# WhatsApp Notifications Deployment Guide (Amazon Pinpoint)
 
 ## Overview
 
-This guide walks you through deploying WhatsApp notifications for your job tracker system.
+This guide walks you through deploying WhatsApp notifications using Amazon Pinpoint for your job tracker system.
 
 **What's Implemented:**
-- Python WhatsApp notification module (`whatsapp_notifier.py`)
-- Integration with existing `POST /recruiter-submissions` endpoint
+- Python Pinpoint WhatsApp module (`whatsapp_pinpoint.py`)
 - Automatic notifications when recruiters submit job applications
+- Manual trigger endpoint for admin (`POST /recruiter-submissions/{id}/send-whatsapp`)
+- WhatsApp notification history tracking
+- Admin dashboard with WhatsApp buttons
 - Graceful degradation (system works even if WhatsApp fails)
+
+**Why Amazon Pinpoint?**
+- AWS-native solution (no external API tokens)
+- Integrated monitoring with CloudWatch
+- Built-in analytics and delivery tracking
+- IAM-based authentication
+- Part of existing AWS infrastructure
 
 ---
 
@@ -16,88 +25,91 @@ This guide walks you through deploying WhatsApp notifications for your job track
 
 Before deploying, complete these steps:
 
-1. **✅ Complete WhatsApp Business Account Setup**
-   - Follow `WHATSAPP-SETUP.md` to get your credentials
+1. **✅ Complete Pinpoint Setup**
+   - Follow `PINPOINT-SETUP.md` to configure Amazon Pinpoint
    - You need:
-     - `WHATSAPP_TOKEN` (permanent access token)
-     - `PHONE_NUMBER_ID` (from Meta)
-     - `RECIPIENT_NUMBER` (your WhatsApp number in E.164 format, e.g., `60123456789`)
+     - `PINPOINT_APP_ID` (from Pinpoint project)
+     - `PINPOINT_ORIGINATION_NUMBER` (WhatsApp-enabled phone number)
+     - `PINPOINT_RECIPIENT_NUMBER` (your WhatsApp number in E.164 format)
 
-2. **✅ Test WhatsApp API**
-   - Send a test message using curl (see WHATSAPP-SETUP.md Step 5)
+2. **✅ Verify Pinpoint Configuration**
+   - Send test message using AWS CLI (see PINPOINT-SETUP.md Step 6)
    - Verify you receive messages on your WhatsApp
+   - Confirm IAM permissions are set up
 
 ---
 
-## Step 1: Store Credentials in AWS Secrets Manager
+## Step 1: Configure Lambda Environment Variables
 
-### 1.1 Create Secret
+### 1.1 Set Environment Variables
 
 ```bash
-# Replace with YOUR actual credentials
-aws secretsmanager create-secret \
-  --name job-tracker-whatsapp \
-  --description "WhatsApp Business API credentials for job tracker notifications" \
-  --secret-string '{
-    "WHATSAPP_TOKEN": "EAAxxxxxxxxxxxxx",
-    "PHONE_NUMBER_ID": "123456789012345",
-    "BUSINESS_ACCOUNT_ID": "987654321098765",
-    "RECIPIENT_NUMBER": "60123456789"
-  }' \
+# Get current configuration
+aws lambda get-function-configuration \
+  --function-name job-tracker-api \
   --region ap-southeast-5 \
-  --tags Key=Project,Value=JobTracker Key=Environment,Value=prod
+  --query 'Environment.Variables' > /tmp/current-env.json
 
-# Expected output:
-# {
-#     "ARN": "arn:aws:secretsmanager:ap-southeast-5:460742884565:secret:job-tracker-whatsapp-xxxxxx",
-#     "Name": "job-tracker-whatsapp",
-#     "VersionId": "..."
-# }
+# Add Pinpoint variables (update with YOUR values)
+aws lambda update-function-configuration \
+  --function-name job-tracker-api \
+  --environment Variables="{
+    BUCKET_NAME=vgnshlvnz-job-tracker,
+    CLIENT_ID=4f8f3qon7v6tegud4qe854epo6,
+    USER_POOL_ID=ap-southeast-5_0QQg8Wd6r,
+    REGION=ap-southeast-5,
+    PRESIGNED_URL_EXPIRY=900,
+    PINPOINT_APP_ID=YOUR_PINPOINT_APP_ID,
+    PINPOINT_ORIGINATION_NUMBER=+60123456789,
+    PINPOINT_RECIPIENT_NUMBER=+60987654321
+  }" \
+  --region ap-southeast-5
+
+# Expected output includes the three PINPOINT_* variables
 ```
 
-### 1.2 Verify Secret
+### 1.2 Verify Configuration
 
 ```bash
-aws secretsmanager get-secret-value \
-  --secret-id job-tracker-whatsapp \
+aws lambda get-function-configuration \
+  --function-name job-tracker-api \
   --region ap-southeast-5 \
-  --query SecretString \
-  --output text | jq '.'
+  --query 'Environment.Variables' | jq '.'
 
-# Should output your credentials (with actual values)
+# Should include:
+# {
+#   "BUCKET_NAME": "vgnshlvnz-job-tracker",
+#   "CLIENT_ID": "4f8f3qon7v6tegud4qe854epo6",
+#   "PRESIGNED_URL_EXPIRY": "900",
+#   "REGION": "ap-southeast-5",
+#   "USER_POOL_ID": "ap-southeast-5_0QQg8Wd6r",
+#   "PINPOINT_APP_ID": "abc123def456",
+#   "PINPOINT_ORIGINATION_NUMBER": "+60123456789",
+#   "PINPOINT_RECIPIENT_NUMBER": "+60987654321"
+# }
 ```
 
 ---
 
 ## Step 2: Update Lambda IAM Role
 
-### 2.1 Get Current Role Name
-
-```bash
-aws lambda get-function \
-  --function-name job-tracker-api \
-  --region ap-southeast-5 \
-  --query 'Configuration.Role' \
-  --output text
-
-# Output: arn:aws:iam::460742884565:role/JobTrackerLambdaRole
-```
-
-### 2.2 Create IAM Policy for Secrets Manager
+### 2.1 Create Pinpoint Access Policy
 
 ```bash
 # Create policy document
-cat > /tmp/secrets-policy.json <<'EOF'
+cat > /tmp/pinpoint-policy.json <<'EOF'
 {
   "Version": "2012-10-17",
   "Statement": [
     {
       "Effect": "Allow",
       "Action": [
-        "secretsmanager:GetSecretValue",
-        "secretsmanager:DescribeSecret"
+        "mobiletargeting:SendMessages",
+        "mobiletargeting:SendUsersMessages",
+        "mobiletargeting:GetEndpoint",
+        "mobiletargeting:UpdateEndpoint"
       ],
-      "Resource": "arn:aws:secretsmanager:ap-southeast-5:460742884565:secret:job-tracker-whatsapp-*"
+      "Resource": "arn:aws:mobiletargeting:ap-southeast-5:460742884565:apps/*"
     }
   ]
 }
@@ -105,36 +117,36 @@ EOF
 
 # Create IAM policy
 aws iam create-policy \
-  --policy-name JobTrackerWhatsAppSecretsAccess \
-  --policy-document file:///tmp/secrets-policy.json \
-  --description "Allow job-tracker Lambda to read WhatsApp credentials from Secrets Manager"
+  --policy-name JobTrackerPinpointAccess \
+  --policy-document file:///tmp/pinpoint-policy.json \
+  --description "Allow job-tracker Lambda to send WhatsApp via Amazon Pinpoint"
 
 # Output will include PolicyArn - save this!
-# Example: arn:aws:iam::460742884565:policy/JobTrackerWhatsAppSecretsAccess
+# Example: arn:aws:iam::460742884565:policy/JobTrackerPinpointAccess
 ```
 
-### 2.3 Attach Policy to Lambda Role
+### 2.2 Attach Policy to Lambda Role
 
 ```bash
 aws iam attach-role-policy \
   --role-name JobTrackerLambdaRole \
-  --policy-arn arn:aws:iam::460742884565:policy/JobTrackerWhatsAppSecretsAccess
+  --policy-arn arn:aws:iam::460742884565:policy/JobTrackerPinpointAccess
 
 # No output means success
 ```
 
-### 2.4 Verify Policy Attached
+### 2.3 Verify Policy Attached
 
 ```bash
 aws iam list-attached-role-policies \
   --role-name JobTrackerLambdaRole \
-  --query 'AttachedPolicies[?contains(PolicyName, `WhatsApp`)]'
+  --query 'AttachedPolicies[?contains(PolicyName, `Pinpoint`)]'
 
 # Should show:
 # [
 #     {
-#         "PolicyName": "JobTrackerWhatsAppSecretsAccess",
-#         "PolicyArn": "arn:aws:iam::460742884565:policy/JobTrackerWhatsAppSecretsAccess"
+#         "PolicyName": "JobTrackerPinpointAccess",
+#         "PolicyArn": "arn:aws:iam::460742884565:policy/JobTrackerPinpointAccess"
 #     }
 # ]
 ```
@@ -154,7 +166,7 @@ mkdir -p /tmp/lambda-deploy
 
 # Copy Lambda code
 cp src/app.py /tmp/lambda-deploy/
-cp src/whatsapp_notifier.py /tmp/lambda-deploy/
+cp src/whatsapp_pinpoint.py /tmp/lambda-deploy/
 
 # Install dependencies (if any new ones needed)
 if [ -f src/requirements.txt ]; then
@@ -163,11 +175,11 @@ fi
 
 # Create deployment package
 cd /tmp/lambda-deploy
-zip -r /tmp/job-tracker-whatsapp.zip . > /dev/null
+zip -r /tmp/job-tracker-pinpoint.zip . > /dev/null
 
 # Verify package size
-ls -lh /tmp/job-tracker-whatsapp.zip
-# Should be around 17-20 MB
+ls -lh /tmp/job-tracker-pinpoint.zip
+# Should be around 17-20 MB (or less without external dependencies)
 ```
 
 ### 3.2 Update Lambda Function
@@ -176,7 +188,7 @@ ls -lh /tmp/job-tracker-whatsapp.zip
 # Update function code
 aws lambda update-function-code \
   --function-name job-tracker-api \
-  --zip-file fileb:///tmp/job-tracker-whatsapp.zip \
+  --zip-file fileb:///tmp/job-tracker-pinpoint.zip \
   --region ap-southeast-5 \
   --output json | jq '.FunctionName, .Runtime, .LastModified, .CodeSize'
 
@@ -200,36 +212,73 @@ echo "Lambda update complete!"
 ### 3.4 Verify Deployment
 
 ```bash
-# Check Lambda environment variables
+# Check Lambda configuration
 aws lambda get-function-configuration \
   --function-name job-tracker-api \
   --region ap-southeast-5 \
-  --query 'Environment.Variables' | jq '.'
+  --query '{Runtime: Runtime, LastModified: LastModified, CodeSize: CodeSize, Environment: Environment.Variables}' \
+  | jq '.'
 
-# Should include:
-# {
-#   "BUCKET_NAME": "vgnshlvnz-job-tracker",
-#   "CLIENT_ID": "4f8f3qon7v6tegud4qe854epo6",
-#   "PRESIGNED_URL_EXPIRY": "900",
-#   "REGION": "ap-southeast-5",
-#   "USER_POOL_ID": "ap-southeast-5_0QQg8Wd6r"
-# }
+# Verify all PINPOINT_* environment variables are present
 ```
 
 ---
 
-## Step 4: Test WhatsApp Notifications
+## Step 4: Deploy Updated Dashboard
 
-### 4.1 Test with Real Submission
+### 4.1 Upload Updated HTML to S3
 
 ```bash
-# Submit a test job application
+# Upload updated recruiter dashboard with WhatsApp buttons
+aws s3 cp recruiter-dashboard.html \
+  s3://vgnshlvnz-portfolio/ \
+  --content-type text/html \
+  --region ap-southeast-5
+
+# Verify upload
+aws s3 ls s3://vgnshlvnz-portfolio/recruiter-dashboard.html
+```
+
+### 4.2 Invalidate CloudFront Cache
+
+```bash
+# Get CloudFront distribution ID
+DIST_ID=$(aws cloudfront list-distributions \
+  --query "DistributionList.Items[?contains(Aliases.Items, 'cv.vgnshlv.nz')].Id" \
+  --output text)
+
+# Create invalidation for dashboard
+aws cloudfront create-invalidation \
+  --distribution-id $DIST_ID \
+  --paths "/recruiter-dashboard.html"
+
+# Wait for invalidation to complete (usually 1-5 minutes)
+```
+
+### 4.3 Verify Dashboard Update
+
+```bash
+# Download from CloudFront to verify
+curl -s https://cv.vgnshlv.nz/recruiter-dashboard.html | grep -o "sendWhatsApp"
+
+# Should output: "sendWhatsApp" (multiple times)
+```
+
+---
+
+## Step 5: Test WhatsApp Notifications
+
+### 5.1 Test Automatic Notification
+
+Submit a test job application:
+
+```bash
 curl -X POST https://riyot36gu9.execute-api.ap-southeast-5.amazonaws.com/prod/recruiter-submissions \
   -H "Content-Type: application/json" \
   -d '{
     "recruiter": {
-      "name": "Test Recruiter",
-      "email": "test@example.com",
+      "name": "Test Recruiter - Auto",
+      "email": "test-auto@example.com",
       "phone": "+60-12-3456789",
       "agency": "Test Agency"
     },
@@ -257,30 +306,58 @@ curl -X POST https://riyot36gu9.execute-api.ap-southeast-5.amazonaws.com/prod/re
 }
 ```
 
-**Check WhatsApp on your phone** - you should receive:
+**Check your WhatsApp** - you should receive:
 ```
-🔔 *New Job Application Received*
+🔔 New Job Application
 
-*Recruiter Information:*
-• Name: Test Recruiter
-• Email: test@example.com
-• Phone: +60-12-3456789
-• Agency: Test Agency
+👤 Test Recruiter - Auto
+📧 test-auto@example.com
+📞 +60-12-3456789
+🏢 Test Agency
 
-*Job Details:*
-• Title: Senior Python Developer
-• Company: Tech Corp
-• Salary: MYR 12,000 - 18,000
-• Skills: Python, AWS, Lambda, API Gateway
+💼 Senior Python Developer at Tech Corp
+💰 MYR 12,000 - 18,000
+🔧 Python, AWS, Lambda, API Gateway
 
-*Requirements:*
-5+ years Python experience, AWS knowledge required
-
-_Submission ID: rec_2025-11-02_abc12345_
-_Received: 2025-11-02T07:45:00Z_
+📋 rec_2025-11-02_abc12345
 ```
 
-### 4.2 Check Lambda Logs
+### 5.2 Test Manual Trigger
+
+First, get an access token from the admin dashboard by logging in, then:
+
+```bash
+# Login first to get token (use recruiter-dashboard.html)
+# Copy JWT token from browser console after login
+
+TOKEN="YOUR_JWT_TOKEN_HERE"
+SUBMISSION_ID="rec_2025-11-02_abc12345"
+
+# Manually trigger WhatsApp
+curl -X POST "https://riyot36gu9.execute-api.ap-southeast-5.amazonaws.com/prod/recruiter-submissions/$SUBMISSION_ID/send-whatsapp" \
+  -H "Authorization: Bearer $TOKEN"
+
+# Expected response:
+# {
+#   "submission_id": "rec_2025-11-02_abc12345",
+#   "status": "sent",
+#   "message_id": "msg-xyz789",
+#   "sent_at": "2025-11-02T08:00:00Z",
+#   "sent_by": "admin@vgnshlv.nz"
+# }
+```
+
+### 5.3 Test Dashboard UI
+
+1. **Login** to https://cv.vgnshlv.nz/recruiter-dashboard.html
+2. **Check table** - each submission should have 💬 button
+3. **Click WhatsApp button** in table row - confirm dialog appears
+4. **View submission details** - should show "WhatsApp Notifications" section
+5. **Check history** - automatic send should be listed
+6. **Click "Send WhatsApp Now"** - should trigger manual send
+7. **Refresh details** - manual send should appear in history
+
+### 5.4 Check Lambda Logs
 
 ```bash
 # View recent logs
@@ -294,43 +371,30 @@ aws logs filter-log-events \
   --start-time $(date -u -d '10 minutes ago' +%s)000
 
 # Look for:
-# "WhatsApp credentials loaded successfully"
-# "WhatsApp message sent successfully: wamid.xxx"
-# "Sent text (wamid.xxx)"
+# "WhatsApp notification sent via Pinpoint: msg-abc123"
+# "Pinpoint message sent successfully: msg-abc123"
+# "Manual WhatsApp notification sent for rec_xxx"
 ```
 
-### 4.3 Test Error Handling
+### 5.5 Check Pinpoint Analytics
 
-**Test 1: Missing Credentials** (WhatsApp should gracefully degrade)
 ```bash
-# Temporarily rename secret
-aws secretsmanager update-secret \
-  --secret-id job-tracker-whatsapp \
-  --description "TEMPORARILY_DISABLED" \
+# Get delivery metrics (may take a few minutes to appear)
+aws pinpoint get-application-date-range-kpi \
+  --application-id YOUR_PINPOINT_APP_ID \
+  --kpi-name messages-sent \
+  --start-time $(date -u -d '1 hour ago' +%Y-%m-%dT%H:%M:%S)Z \
+  --end-time $(date -u +%Y-%m-%dT%H:%M:%S)Z \
   --region ap-southeast-5
 
-# Submit another test application
-# Response should have: "whatsapp_notification": "disabled"
-
-# Re-enable
-aws secretsmanager update-secret \
-  --secret-id job-tracker-whatsapp \
-  --description "WhatsApp Business API credentials for job tracker notifications" \
-  --region ap-southeast-5
+# Via Console: Pinpoint → Analytics → Overview
 ```
-
-**Test 2: Invalid Token**
-- Update secret with invalid token
-- Submit application
-- Check logs for "WhatsApp API error"
-- Response should have: "whatsapp_notification": "failed"
-- **Important:** Job submission should still succeed!
 
 ---
 
-## Step 5: Monitor and Troubleshoot
+## Step 6: Monitor and Troubleshoot
 
-### 5.1 CloudWatch Metrics
+### 6.1 CloudWatch Metrics
 
 ```bash
 # Lambda invocations
@@ -344,124 +408,127 @@ aws cloudwatch get-metric-statistics \
   --statistics Sum \
   --region ap-southeast-5
 
-# Lambda errors
+# Pinpoint delivery rate
 aws cloudwatch get-metric-statistics \
-  --namespace AWS/Lambda \
-  --metric-name Errors \
-  --dimensions Name=FunctionName,Value=job-tracker-api \
+  --namespace AWS/Pinpoint \
+  --metric-name DeliveryRate \
+  --dimensions Name=ApplicationId,Value=YOUR_PINPOINT_APP_ID \
   --start-time $(date -u -d '1 hour ago' +%Y-%m-%dT%H:%M:%S) \
   --end-time $(date -u +%Y-%m-%dT%H:%M:%S) \
   --period 300 \
-  --statistics Sum \
+  --statistics Average \
   --region ap-southeast-5
 ```
 
-### 5.2 Common Issues
+### 6.2 Common Issues
 
 **Issue 1: "whatsapp_notification": "disabled"**
-- **Cause:** Credentials not found in Secrets Manager
-- **Fix:** Verify secret exists and Lambda role has permission
-
-```bash
-# Check secret exists
-aws secretsmanager describe-secret \
-  --secret-id job-tracker-whatsapp \
-  --region ap-southeast-5
-
-# Check Lambda role permissions
-aws iam get-role-policy \
-  --role-name JobTrackerLambdaRole \
-  --policy-name SecretsManagerAccess 2>/dev/null || echo "Policy not found"
-```
+- **Cause:** Pinpoint environment variables not set
+- **Fix:** Verify Lambda environment variables (Step 1.2)
 
 **Issue 2: "whatsapp_notification": "failed"**
-- **Cause:** WhatsApp API returned error
+- **Cause:** Pinpoint API returned error
 - **Fix:** Check CloudWatch logs for specific error
 
 ```bash
 # Get detailed error
 aws logs filter-log-events \
   --log-group-name /aws/lambda/job-tracker-api \
-  --filter-pattern "WhatsApp API error" \
+  --filter-pattern "Pinpoint" \
   --region ap-southeast-5 \
   --start-time $(date -u -d '30 minutes ago' +%s)000
 ```
 
-Common WhatsApp API errors:
-- `"code": 100, "message": "Invalid parameter"` → Check phone number format (E.164)
-- `"code": 131047, "message": "Re-engagement message"` → 24-hour window expired, use template
-- `"code": 131026, "message": "Message undeliverable"` → Recipient blocked you or doesn't have WhatsApp
+Common Pinpoint errors:
+- **Invalid phone number format** → Use E.164 format (+60123456789)
+- **Permission denied** → Check IAM policy attached (Step 2.3)
+- **Application not found** → Verify PINPOINT_APP_ID is correct
+- **Origination number invalid** → Verify number provisioned in Pinpoint
 
 **Issue 3: Messages not received**
 - Verify recipient number is correct (E.164 format)
-- Check test number restrictions (max 5 recipients)
-- Verify recipient has WhatsApp installed
-- Check WhatsApp Business Account status in Meta dashboard
+- Check recipient has WhatsApp installed
+- Verify origination number is WhatsApp-enabled
+- Check Pinpoint console for delivery status
+
+**Issue 4: Manual trigger returns 401**
+- Admin not logged in
+- JWT token expired (refresh login)
+- Token not passed in Authorization header
+
+**Issue 5: Manual trigger returns 403**
+- User is not admin
+- Check Cognito user groups
+- Verify admin attribute in JWT
 
 ---
 
-## Step 6: Production Checklist
+## Step 7: Production Checklist
 
 Before marking complete:
 
-- [ ] WhatsApp Business Account fully verified
-- [ ] Permanent access token generated and stored in Secrets Manager
-- [ ] Lambda IAM role has Secrets Manager permissions
-- [ ] Lambda code deployed with whatsapp_notifier.py
-- [ ] Test message sent and received successfully
-- [ ] Error handling tested (submission succeeds even if WhatsApp fails)
-- [ ] CloudWatch logs show "WhatsApp message sent successfully"
+- [ ] Amazon Pinpoint project created
+- [ ] WhatsApp-enabled phone number provisioned
+- [ ] Environment variables configured in Lambda
+- [ ] IAM policy attached to Lambda role
+- [ ] Lambda code deployed with whatsapp_pinpoint.py
+- [ ] Dashboard updated with WhatsApp buttons
+- [ ] Automatic notification tested (submission → WhatsApp)
+- [ ] Manual trigger tested (dashboard button → WhatsApp)
+- [ ] WhatsApp history displays correctly in dashboard
+- [ ] CloudWatch logs show successful deliveries
+- [ ] Pinpoint analytics show message counts
+- [ ] Error handling tested (graceful degradation works)
 - [ ] Monitoring and alerts configured
 
 ---
 
 ## Optional Enhancements
 
-### Enhancement 1: Send CV with Notification
+### Enhancement 1: Message Templates
 
-Currently, CV is uploaded AFTER the submission is created (via presigned URL). To include CV in WhatsApp:
+For re-engagement messages outside 24-hour window:
 
-**Option A: Trigger on S3 Upload**
-- Add S3 event notification for CV uploads
-- Trigger separate Lambda to send WhatsApp with CV
-- Use existing file_validator Lambda
+```bash
+# Create template in Pinpoint console
+# Template name: job_application_reminder
+# Content: Pre-approved message for follow-ups
 
-**Option B: Delayed Notification**
-- Wait X seconds after submission
-- Check if CV was uploaded
-- Send WhatsApp with CV if available
-
-### Enhancement 2: Template Messages
-
-For production (outside 24-hour window), use approved templates:
-
-```python
-# In whatsapp_notifier.py, add:
-def send_template_message(phone_number_id, token, recipient, template_name, parameters):
-    payload = {
-        "messaging_product": "whatsapp",
-        "to": recipient,
-        "type": "template",
-        "template": {
-            "name": template_name,
-            "language": {"code": "en"},
-            "components": [{
-                "type": "body",
-                "parameters": [{"type": "text", "text": p} for p in parameters]
-            }]
-        }
-    }
-    return send_whatsapp_message(phone_number_id, token, recipient, payload)
+# Use template in code (update whatsapp_pinpoint.py):
+# Use send_template_message() function instead of send_whatsapp_message()
 ```
 
-### Enhancement 3: Two-Way Communication
+### Enhancement 2: Two-Way Messaging
 
-Set up webhook to receive replies:
+Set up webhook to receive WhatsApp replies:
 
-1. Configure webhook URL in Meta dashboard
-2. Create API Gateway endpoint → Lambda
-3. Process incoming messages (replies from you)
-4. Update submission status based on replies
+1. Create new Lambda for webhook processing
+2. Configure API Gateway endpoint
+3. Register webhook URL in Pinpoint
+4. Process incoming messages (status updates from admin)
+
+### Enhancement 3: Bulk Notifications
+
+Add bulk send capability to dashboard:
+
+```javascript
+// In recruiter-dashboard.html
+async function sendBulkWhatsApp(submissionIds) {
+  for (const id of submissionIds) {
+    await sendWhatsApp(id);
+    await new Promise(r => setTimeout(r, 2000)); // Rate limiting
+  }
+}
+```
+
+### Enhancement 4: Rich Media
+
+Send custom CV with WhatsApp notification (requires Pinpoint MMS):
+
+```python
+# In whatsapp_pinpoint.py - extend send_application_notification()
+# to include document/image attachments
+```
 
 ---
 
@@ -471,56 +538,67 @@ If issues occur:
 
 ```bash
 # 1. Redeploy previous Lambda version
-PREV_VERSION=$(aws lambda list-versions-by-function \
+aws lambda list-versions-by-function \
   --function-name job-tracker-api \
   --region ap-southeast-5 \
-  --query 'Versions[-2].Version' \
-  --output text)
+  --query 'Versions[-2].Version'
 
+# 2. Update to previous version
 aws lambda update-function-code \
   --function-name job-tracker-api \
   --zip-file fileb:///tmp/old-lambda-package.zip \
   --region ap-southeast-5
 
-# 2. Remove IAM policy (optional)
+# 3. Remove Pinpoint environment variables (optional)
+aws lambda update-function-configuration \
+  --function-name job-tracker-api \
+  --environment Variables="{
+    BUCKET_NAME=vgnshlvnz-job-tracker,
+    CLIENT_ID=4f8f3qon7v6tegud4qe854epo6,
+    USER_POOL_ID=ap-southeast-5_0QQg8Wd6r,
+    REGION=ap-southeast-5,
+    PRESIGNED_URL_EXPIRY=900
+  }" \
+  --region ap-southeast-5
+
+# 4. Detach IAM policy (optional)
 aws iam detach-role-policy \
   --role-name JobTrackerLambdaRole \
-  --policy-arn arn:aws:iam::460742884565:policy/JobTrackerWhatsAppSecretsAccess
-
-# 3. Delete secret (only if needed)
-aws secretsmanager delete-secret \
-  --secret-id job-tracker-whatsapp \
-  --recovery-window-in-days 7 \
-  --region ap-southeast-5
+  --policy-arn arn:aws:iam::460742884565:policy/JobTrackerPinpointAccess
 ```
 
 ---
 
 ## Cost Estimate
 
-**WhatsApp Cloud API Pricing:**
-- User-initiated conversations: Free
-- Business-initiated (templates): $0.005 - $0.03 per message (depending on country)
-- Malaysia: ~$0.01 per business-initiated message
+**Amazon Pinpoint WhatsApp Pricing:**
+- User-initiated messages (within 24-hour window): **Free**
+- Business-initiated (templates, outside window):
+  - Malaysia: ~$0.01 USD per message
+  - US: ~$0.02 USD per message
 
 **Expected Monthly Cost:**
 - Assuming 50 job applications/month
-- All messages are user-initiated (within 24-hour window)
-- **Cost: $0 USD/month**
+- All automatic notifications (user-initiated, within 24-hour window)
+- **WhatsApp Cost: $0 USD/month**
 
-**AWS Costs:**
-- Secrets Manager: $0.40/month per secret
+**AWS Infrastructure Costs:**
 - Lambda: Negligible (within free tier)
-- **Total additional cost: ~$0.40 USD/month**
+- Pinpoint: $0 (free tier includes 5,000 targeted messages/month)
+- CloudWatch: ~$0.50 USD/month (logs and metrics)
+- **Total: ~$0.50 USD/month**
+
+**Note:** Manual notifications sent days later may incur charges if using templates.
 
 ---
 
 ## Support Resources
 
-- **WhatsApp Cloud API Docs**: https://developers.facebook.com/docs/whatsapp/cloud-api
-- **Meta Business Help**: https://www.facebook.com/business/help
-- **AWS Secrets Manager**: https://docs.aws.amazon.com/secretsmanager/
-- **CloudWatch Logs**: https://console.aws.amazon.com/cloudwatch/
+- **Amazon Pinpoint Docs**: https://docs.aws.amazon.com/pinpoint/
+- **SMS/WhatsApp Channel**: https://docs.aws.amazon.com/pinpoint/latest/userguide/channels-sms.html
+- **CloudWatch Monitoring**: https://docs.aws.amazon.com/pinpoint/latest/userguide/monitoring-cloudwatch.html
+- **Message Templates**: https://docs.aws.amazon.com/pinpoint/latest/userguide/message-templates.html
+- **IAM Permissions**: https://docs.aws.amazon.com/pinpoint/latest/developerguide/permissions-actions.html
 
 ---
 
@@ -528,18 +606,20 @@ aws secretsmanager delete-secret \
 
 After successful deployment:
 
-1. Update frontend to show WhatsApp notification status
-2. Add admin dashboard feature to manually trigger WhatsApp for old submissions
-3. Implement CV attachment in WhatsApp notifications
-4. Set up message templates for business-initiated messages
-5. Configure webhooks for two-way communication
+1. Monitor delivery rates in Pinpoint console
+2. Set up CloudWatch alarms for failures
+3. Create additional message templates for different scenarios
+4. Consider implementing two-way messaging
+5. Add rich media support (images, documents)
+6. Optimize message content based on analytics
 
 ---
 
 **Deployment Date:** 2025-11-02
 **Status:** 📋 READY FOR DEPLOYMENT
 **Priority:** 🟢 FEATURE ENHANCEMENT
+**Integration:** Amazon Pinpoint (AWS-native)
 
-🤖 Generated with [Claude Code](https://claude.com/claude-code)
+Generated with [Claude Code](https://claude.com/claude-code)
 
 Co-Authored-By: Claude <noreply@anthropic.com>

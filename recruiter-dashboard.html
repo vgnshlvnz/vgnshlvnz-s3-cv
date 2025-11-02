@@ -249,6 +249,23 @@
             background: #5a6268;
         }
 
+        .whatsapp-btn {
+            background: #25D366;
+            padding: 5px 12px;
+            margin: 0;
+            font-size: 16px;
+            border-radius: 4px;
+        }
+
+        .whatsapp-btn:hover {
+            background: #128C7E;
+        }
+
+        .whatsapp-btn:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+
         .loading {
             text-align: center;
             padding: 40px;
@@ -331,11 +348,12 @@
                             <th>Job Title</th>
                             <th>Salary</th>
                             <th>Status</th>
+                            <th>Actions</th>
                         </tr>
                     </thead>
                     <tbody id="submissionsTableBody">
                         <tr>
-                            <td colspan="6" class="loading">Loading...</td>
+                            <td colspan="7" class="loading">Loading...</td>
                         </tr>
                     </tbody>
                 </table>
@@ -450,18 +468,25 @@
             const tbody = document.getElementById('submissionsTableBody');
 
             if (submissions.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="6" class="empty-state">No submissions found</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="7" class="empty-state">No submissions found</td></tr>';
                 return;
             }
 
             tbody.innerHTML = submissions.map(sub => `
-                <tr onclick="viewSubmission('${sub.submission_id}')">
-                    <td>${new Date(sub.created_at).toLocaleDateString()}</td>
-                    <td>${escapeHtml(sub.recruiter_name)}</td>
-                    <td>${escapeHtml(sub.company)}</td>
-                    <td>${escapeHtml(sub.job_title)}</td>
-                    <td>${sub.salary_max ? sub.salary_max.toLocaleString() : 'N/A'}</td>
-                    <td><span class="status-badge status-${sub.status}">${sub.status.toUpperCase().replace('_', ' ')}</span></td>
+                <tr>
+                    <td onclick="viewSubmission('${sub.submission_id}')">${new Date(sub.created_at).toLocaleDateString()}</td>
+                    <td onclick="viewSubmission('${sub.submission_id}')">${escapeHtml(sub.recruiter_name)}</td>
+                    <td onclick="viewSubmission('${sub.submission_id}')">${escapeHtml(sub.company)}</td>
+                    <td onclick="viewSubmission('${sub.submission_id}')">${escapeHtml(sub.job_title)}</td>
+                    <td onclick="viewSubmission('${sub.submission_id}')">${sub.salary_max ? sub.salary_max.toLocaleString() : 'N/A'}</td>
+                    <td onclick="viewSubmission('${sub.submission_id}')"><span class="status-badge status-${sub.status}">${sub.status.toUpperCase().replace('_', ' ')}</span></td>
+                    <td>
+                        <button onclick="event.stopPropagation(); sendWhatsApp('${sub.submission_id}')"
+                                class="whatsapp-btn"
+                                title="Send WhatsApp notification">
+                            💬
+                        </button>
+                    </td>
                 </tr>
             `).join('');
         }
@@ -547,6 +572,14 @@
                     ${sub.cv_download_url ? `<div><a href="${sub.cv_download_url}" target="_blank">Download Custom CV</a></div>` : '<div>No custom CV yet</div>'}
                     <button onclick="uploadCustomCV('${sub.submission_id}')">Upload Custom CV</button>
                 </div>
+
+                <div class="detail-section">
+                    <h3>WhatsApp Notifications</h3>
+                    ${renderWhatsAppHistory(sub.whatsapp_history || [])}
+                    <button onclick="sendWhatsApp('${sub.submission_id}')" class="whatsapp-btn" style="margin-top: 10px;">
+                        💬 Send WhatsApp Now
+                    </button>
+                </div>
             `;
 
             document.getElementById('detailModal').classList.add('active');
@@ -598,6 +631,68 @@
         // Upload Custom CV (placeholder)
         function uploadCustomCV(id) {
             alert('CV Upload feature: Create a file input and use the presigned URL from POST /recruiter-submissions/' + id + '/cv-upload');
+        }
+
+        // Render WhatsApp History
+        function renderWhatsAppHistory(history) {
+            if (!history || history.length === 0) {
+                return '<div style="color: #999; font-style: italic;">No WhatsApp notifications sent yet</div>';
+            }
+
+            return history.map(entry => {
+                const statusColor = entry.status === 'sent' ? '#25D366' :
+                                   entry.status === 'failed' ? '#dc3545' : '#ff9800';
+                const statusIcon = entry.status === 'sent' ? '✓' :
+                                  entry.status === 'failed' ? '✗' : '⚠';
+
+                return `
+                    <div style="padding: 8px; margin: 5px 0; background: #f9f9f9; border-left: 3px solid ${statusColor};">
+                        <div style="display: flex; justify-content: space-between;">
+                            <span><strong>${statusIcon} ${entry.status.toUpperCase()}</strong></span>
+                            <span style="color: #666; font-size: 12px;">${new Date(entry.sent_at).toLocaleString()}</span>
+                        </div>
+                        <div style="font-size: 12px; color: #666; margin-top: 4px;">
+                            ${entry.trigger === 'auto' ? 'Automatic' : 'Manual'} •
+                            Sent by: ${entry.sent_by}
+                            ${entry.message_id ? ` • ID: ${entry.message_id.substring(0, 20)}...` : ''}
+                            ${entry.error ? `<br><span style="color: #dc3545;">Error: ${escapeHtml(entry.error)}</span>` : ''}
+                        </div>
+                    </div>
+                `;
+            }).reverse().join(''); // Most recent first
+        }
+
+        // Send WhatsApp Notification
+        async function sendWhatsApp(id) {
+            if (!confirm('Send WhatsApp notification for this submission?')) {
+                return;
+            }
+
+            try {
+                const response = await fetch(`${API_BASE_URL}/recruiter-submissions/${id}/send-whatsapp`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${idToken}`
+                    }
+                });
+
+                const result = await response.json();
+
+                if (response.ok) {
+                    if (result.status === 'sent') {
+                        alert(`WhatsApp notification sent successfully!\\nMessage ID: ${result.message_id}`);
+                    } else {
+                        alert(`WhatsApp notification failed:\\n${result.error}`);
+                    }
+                    // Reload submission details to show updated history
+                    viewSubmission(id);
+                } else {
+                    alert(`Error: ${result.error || result.message || 'Unknown error'}`);
+                }
+            } catch (error) {
+                console.error('Error sending WhatsApp:', error);
+                alert('Error sending WhatsApp notification. Check console for details.');
+            }
         }
 
         // Event Listeners

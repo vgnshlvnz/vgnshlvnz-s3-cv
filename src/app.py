@@ -23,12 +23,12 @@ from collections import defaultdict
 logger = logging.getLogger()
 logger.setLevel(os.environ.get('LOG_LEVEL', 'INFO'))
 
-# Import WhatsApp notification module
+# Import WhatsApp notification module (Amazon Pinpoint)
 try:
-    from whatsapp_notifier import send_application_notification, is_whatsapp_enabled
+    from whatsapp_pinpoint import send_application_notification, is_pinpoint_enabled
     WHATSAPP_AVAILABLE = True
 except ImportError as e:
-    logger.warning(f"WhatsApp notifier not available: {e}")
+    logger.warning(f"WhatsApp Pinpoint module not available: {e}")
     WHATSAPP_AVAILABLE = False
 
 # Environment variables
@@ -890,7 +890,8 @@ def create_recruiter_submission(event: Dict) -> Dict:
                 "customized_cv": None
             },
             "admin_notes": "",
-            "contact_history": []
+            "contact_history": [],
+            "whatsapp_history": []
         }
 
         # Save metadata to S3
@@ -918,22 +919,57 @@ def create_recruiter_submission(event: Dict) -> Dict:
 
         logger.info(f"Created recruiter submission: {rec_id}")
 
-        # Send WhatsApp notification (non-blocking, failures don't affect submission)
+        # Send WhatsApp notification via Pinpoint (non-blocking, failures don't affect submission)
         whatsapp_status = "disabled"
-        if WHATSAPP_AVAILABLE and is_whatsapp_enabled():
+        if WHATSAPP_AVAILABLE and is_pinpoint_enabled():
             try:
                 # Note: CV will be uploaded later via presigned URL
                 # WhatsApp notification will be sent without CV initially
                 success, message = send_application_notification(meta, cv_info=None)
                 if success:
                     whatsapp_status = "sent"
-                    logger.info(f"WhatsApp notification sent: {message}")
+                    logger.info(f"WhatsApp notification sent via Pinpoint: {message}")
+
+                    # Add to WhatsApp history in metadata
+                    meta['whatsapp_history'].append({
+                        'sent_at': _utc_now(),
+                        'status': 'sent',
+                        'message_id': message,
+                        'sent_by': 'system',
+                        'trigger': 'auto'
+                    })
+
+                    # Update metadata with history
+                    s3.put_object(
+                        Bucket=BUCKET_NAME,
+                        Key=f"{prefix}meta.json",
+                        Body=json.dumps(meta, ensure_ascii=False, indent=2).encode('utf-8'),
+                        ContentType="application/json"
+                    )
                 else:
                     whatsapp_status = "failed"
                     logger.warning(f"WhatsApp notification failed: {message}")
+
+                    # Log failure in history
+                    meta['whatsapp_history'].append({
+                        'sent_at': _utc_now(),
+                        'status': 'failed',
+                        'error': message,
+                        'sent_by': 'system',
+                        'trigger': 'auto'
+                    })
             except Exception as e:
                 whatsapp_status = "error"
                 logger.exception(f"Error sending WhatsApp notification: {str(e)}")
+
+                # Log error in history
+                meta['whatsapp_history'].append({
+                    'sent_at': _utc_now(),
+                    'status': 'error',
+                    'error': str(e),
+                    'sent_by': 'system',
+                    'trigger': 'auto'
+                })
 
         return _response(200, {
             "submission_id": rec_id,
@@ -1342,6 +1378,111 @@ def upload_custom_cv(event: Dict) -> Dict:
         return _error_response(500, f"Internal error: {str(e)}", "InternalError")
 
 
+def send_whatsapp_manually(event: Dict) -> Dict:
+    """
+    POST /recruiter-submissions/{id}/send-whatsapp
+    Manually trigger WhatsApp notification for existing submission (admin only)
+    """
+    try:
+        # Get submission ID from path
+        path_params = event.get('pathParameters') or {}
+        rec_id = path_params.get('id')
+
+        if not rec_id:
+            return _error_response(400, "Missing submission ID", "InvalidRequest")
+
+        # Check if WhatsApp is available
+        if not WHATSAPP_AVAILABLE:
+            return _error_response(503, "WhatsApp module not available", "ServiceUnavailable")
+
+        if not is_pinpoint_enabled():
+            return _error_response(503, "WhatsApp Pinpoint not configured", "ServiceUnavailable")
+
+        # Fetch submission metadata from S3
+        prefix = _rec_prefix(rec_id)
+        meta_key = f"{prefix}meta.json"
+
+        try:
+            obj = s3.get_object(Bucket=BUCKET_NAME, Key=meta_key)
+            meta = json.loads(obj['Body'].read().decode('utf-8'))
+        except ClientError as e:
+            if e.response['Error']['Code'] == 'NoSuchKey':
+                return _error_response(404, f"Submission not found: {rec_id}", "NotFound")
+            raise
+
+        # Get authenticated user email
+        user = event.get('user', {})
+        user_email = user.get('email', user.get('sub', 'admin'))
+
+        # Send WhatsApp notification via Pinpoint
+        # Check if CV is available
+        cv_info = None
+        if meta.get('files', {}).get('customized_cv'):
+            cv_info = {
+                'bucket': BUCKET_NAME,
+                'key': meta['files']['customized_cv']
+            }
+
+        success, message = send_application_notification(meta, cv_info=cv_info)
+
+        # Initialize whatsapp_history if not present
+        if 'whatsapp_history' not in meta:
+            meta['whatsapp_history'] = []
+
+        # Add to WhatsApp history
+        history_entry = {
+            'sent_at': _utc_now(),
+            'sent_by': user_email,
+            'trigger': 'manual'
+        }
+
+        if success:
+            history_entry['status'] = 'sent'
+            history_entry['message_id'] = message
+            logger.info(f"Manual WhatsApp notification sent for {rec_id}: {message}")
+        else:
+            history_entry['status'] = 'failed'
+            history_entry['error'] = message
+            logger.warning(f"Manual WhatsApp notification failed for {rec_id}: {message}")
+
+        meta['whatsapp_history'].append(history_entry)
+
+        # Update metadata with history
+        meta['updated_at'] = _utc_now()
+        s3.put_object(
+            Bucket=BUCKET_NAME,
+            Key=meta_key,
+            Body=json.dumps(meta, ensure_ascii=False, indent=2).encode('utf-8'),
+            ContentType="application/json"
+        )
+
+        # Return response
+        if success:
+            return _response(200, {
+                "submission_id": rec_id,
+                "status": "sent",
+                "message_id": message,
+                "sent_at": history_entry['sent_at'],
+                "sent_by": user_email
+            })
+        else:
+            return _response(200, {
+                "submission_id": rec_id,
+                "status": "failed",
+                "error": message,
+                "sent_at": history_entry['sent_at'],
+                "sent_by": user_email
+            })
+
+    except ValueError as e:
+        return _error_response(400, str(e), "InvalidRequest")
+    except ClientError as e:
+        return _error_response(500, f"S3 error: {str(e)}", "S3Error")
+    except Exception as e:
+        logger.exception("Unexpected error in send_whatsapp_manually")
+        return _error_response(500, f"Internal error: {str(e)}", "InternalError")
+
+
 def lambda_handler(event: Dict, context: Any) -> Dict:
     """
     Main Lambda handler with authentication and security controls
@@ -1398,6 +1539,7 @@ def lambda_handler(event: Dict, context: Any) -> Dict:
         ('/status', 'PUT'),  # Update status (ends with)
         ('/notes', 'PUT'),  # Update notes (ends with)
         ('/cv-upload', 'POST'),  # Upload CV (ends with)
+        ('/send-whatsapp', 'POST'),  # Send WhatsApp notification (ends with)
         ('/applications', 'GET'),  # List applications
         ('/applications', 'POST'),  # Create application
         ('/applications/', 'GET'),  # Get application (starts with)
@@ -1449,6 +1591,10 @@ def lambda_handler(event: Dict, context: Any) -> Dict:
         # POST /recruiter-submissions/{id}/cv-upload - Upload custom CV
         elif method == 'POST' and path.startswith('/recruiter-submissions/') and path.endswith('/cv-upload'):
             return upload_custom_cv(event)
+
+        # POST /recruiter-submissions/{id}/send-whatsapp - Send WhatsApp notification
+        elif method == 'POST' and path.startswith('/recruiter-submissions/') and path.endswith('/send-whatsapp'):
+            return send_whatsapp_manually(event)
 
         # ========== JOB APPLICATION ENDPOINTS ==========
         # POST /applications - Create
