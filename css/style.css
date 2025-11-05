@@ -35,7 +35,7 @@ p {
 }
 
 a {
-    color: #0066cc;
+    color: #000080;
     text-decoration: none;
 }
 
@@ -79,7 +79,7 @@ nav {
 nav .home a {
     margin-right: 1em;
     font-weight: normal;
-    color: #0066cc;
+    color: #000080;
 }
 
 nav .home a:hover {
@@ -215,7 +215,7 @@ nav .home a:hover {
 }
 
 .expand-label:hover {
-    color: #0066cc;
+    color: #000080;
 }
 
 .expand-content {
@@ -443,7 +443,7 @@ a:focus,
 .expand-label:focus,
 .download-btn:focus,
 .modal-close:focus {
-    outline: 2px solid #0066cc;
+    outline: 2px solid #000080;
     outline-offset: 2px;
 }
 

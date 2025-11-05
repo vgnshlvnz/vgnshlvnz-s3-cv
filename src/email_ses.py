@@ -131,11 +131,11 @@ def format_application_email(submission: Dict[str, Any]) -> Tuple[str, str, str]
                                 </tr>
                                 <tr>
                                     <td style="color: #7f8c8d;"><strong>Email:</strong></td>
-                                    <td style="color: #2c3e50;"><a href="mailto:{recruiter_email_raw}" style="color: #3498db; text-decoration: none;">{recruiter_email}</a></td>
+                                    <td style="color: #2c3e50;"><a href="mailto:{recruiter_email_raw}" style="color: #000080; text-decoration: none;">{recruiter_email}</a></td>
                                 </tr>
                                 <tr>
                                     <td style="color: #7f8c8d;"><strong>Phone:</strong></td>
-                                    <td style="color: #2c3e50;"><a href="tel:{recruiter_phone_raw}" style="color: #3498db; text-decoration: none;">{recruiter_phone}</a></td>
+                                    <td style="color: #2c3e50;"><a href="tel:{recruiter_phone_raw}" style="color: #000080; text-decoration: none;">{recruiter_phone}</a></td>
                                 </tr>
                                 {f'<tr><td style="color: #7f8c8d;"><strong>Agency:</strong></td><td style="color: #2c3e50;">{recruiter_agency}</td></tr>' if recruiter_agency else ''}
                             </table>
@@ -173,7 +173,7 @@ def format_application_email(submission: Dict[str, Any]) -> Tuple[str, str, str]
 
                             <!-- Action Button -->
                             <div style="text-align: center; margin: 30px 0;">
-                                <a href="https://cv.vgnshlv.nz/recruiter-dashboard.html?highlight={submission_id_safe}" style="background-color: #3498db; color: #ffffff; padding: 12px 30px; text-decoration: none; border-radius: 5px; font-weight: bold; display: inline-block;">📊 View Full Details in Dashboard</a>
+                                <a href="https://cv.vgnshlv.nz/recruiter-dashboard.html?highlight={submission_id_safe}" style="background-color: #000080; color: #ffffff; padding: 12px 30px; text-decoration: none; border-radius: 5px; font-weight: bold; display: inline-block;">📊 View Full Details in Dashboard</a>
                             </div>
                         </td>
                     </tr>
@@ -183,7 +183,7 @@ def format_application_email(submission: Dict[str, Any]) -> Tuple[str, str, str]
                         <td style="background-color: #ecf0f1; padding: 20px; border-radius: 0 0 8px 8px; text-align: center;">
                             <p style="margin: 5px 0; color: #7f8c8d; font-size: 12px;"><strong>Submission ID:</strong> {submission_id_safe}</p>
                             <p style="margin: 5px 0; color: #7f8c8d; font-size: 12px;"><strong>Received:</strong> {created_at_safe}</p>
-                            <p style="margin: 15px 0 5px 0; color: #95a5a6; font-size: 11px;">Job Tracker System • <a href="https://cv.vgnshlv.nz" style="color: #3498db; text-decoration: none;">cv.vgnshlv.nz</a></p>
+                            <p style="margin: 15px 0 5px 0; color: #95a5a6; font-size: 11px;">Job Tracker System • <a href="https://cv.vgnshlv.nz" style="color: #000080; text-decoration: none;">cv.vgnshlv.nz</a></p>
                         </td>
                     </tr>
                 </table>
